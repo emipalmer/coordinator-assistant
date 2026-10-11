@@ -21,7 +21,6 @@ export type Compliance = Record<ComplianceItem, z.infer<typeof ComplianceEntry>>
 export const VolunteerStatus = z.enum(['onboarding', 'active', 'inactive']);
 
 export interface Volunteer {
-  _id?: unknown;
   name: string;
   nameLower: string; // case-insensitive lookups without a collation
   phone?: string;
@@ -41,7 +40,6 @@ export interface Volunteer {
 }
 
 export interface Shift {
-  _id?: unknown;
   title: string;
   location?: string;
   start: Date;
@@ -55,7 +53,6 @@ export interface Shift {
 
 // Separate collection so a cancellation is a single status flip a change stream can match on.
 export interface Assignment {
-  _id?: unknown;
   shiftId: unknown;
   volunteerId: unknown;
   status: 'confirmed' | 'cancelled';
@@ -64,12 +61,11 @@ export interface Assignment {
 }
 
 export interface AttendanceRecord {
-  _id?: unknown;
   volunteerId: unknown;
   shiftId?: unknown;
   date: Date;
   hours: number;
-  activity?: string;
+  activity: string | null;
   createdAt: Date;
 }
 

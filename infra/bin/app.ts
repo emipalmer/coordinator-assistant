@@ -8,4 +8,5 @@ if (!allowlist) throw new Error('COORDINATOR_ALLOWLIST must be set (see .env.exa
 new CoordinatorStack(app, 'CoordinatorAssistant', {
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: 'us-east-1' },
   allowlist,
+  llmProvider: process.env.LLM_PROVIDER ?? 'bedrock',
 });

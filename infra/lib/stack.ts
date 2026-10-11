@@ -8,14 +8,16 @@ import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { fileURLToPath } from 'node:url';
 
 const lambdaSrc = (file: string) => fileURLToPath(new URL(`../../services/lambda/src/handlers/${file}`, import.meta.url));
 
 export const BRIDGE_SECRET_PARAM = '/coord/bridge-secret';
+const SECRET_PARAMS = ['/coord/mongodb-uri', '/coord/anthropic-api-key'];
 
 export class CoordinatorStack extends Stack {
-  constructor(scope: Construct, id: string, props: StackProps & { allowlist: string }) {
+  constructor(scope: Construct, id: string, props: StackProps & { allowlist: string; llmProvider: string }) {
     super(scope, id, props);
 
     const fn = (name: string, file: string, timeout: number) =>
@@ -23,7 +25,7 @@ export class CoordinatorStack extends Stack {
         entry: lambdaSrc(file),
         runtime: Runtime.NODEJS_22_X,
         architecture: Architecture.ARM_64,
-        memorySize: 512,
+        memorySize: 1024,
         timeout: Duration.seconds(timeout),
         logRetention: RetentionDays.ONE_WEEK,
         bundling: { format: OutputFormat.ESM, target: 'node22', sourceMap: true,
@@ -53,6 +55,19 @@ export class CoordinatorStack extends Stack {
 
     const agent = fn('Agent', 'agent.ts', 120);
     agent.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);
+    agent.addEnvironment('LLM_PROVIDER', props.llmProvider);
+    for (const name of SECRET_PARAMS) {
+      StringParameter.fromSecureStringParameterAttributes(this, `Param${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(agent);
+    }
+    // us.* inference profiles fan out to several regions, so both ARNs are needed across regions.
+    agent.addToRolePolicy(new PolicyStatement({
+      actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
+      resources: [
+        `arn:aws:bedrock:*:${this.account}:inference-profile/us.anthropic.*`,
+        'arn:aws:bedrock:*::foundation-model/anthropic.*',
+        'arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2*',
+      ],
+    }));
     agent.addEventSource(new SqsEventSource(inbound, { batchSize: 1 }));
     outbound.grantSendMessages(agent);
 
