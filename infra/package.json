@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "cdk": "cdk",
-    "deploy": "cdk deploy --require-approval never --outputs-file ../cdk-outputs.json"
+    "deploy": "(cd ../apps/web && npm run build) && cdk deploy --require-approval never --outputs-file ../cdk-outputs.json"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.273.0",

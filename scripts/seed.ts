@@ -1,5 +1,6 @@
 // Synthetic demo data only. Usage:
-//   npx tsx --env-file=.env scripts/seed.ts            reset + seed everything
+//   npx tsx --env-file=.env scripts/seed.ts            reset demo data (keeps coordinator setup + Google)
+//   npx tsx --env-file=.env scripts/seed.ts --fresh-setup   also clear setup answers (to demo the setup interview)
 //   npx tsx --env-file=.env scripts/seed.ts --embed    (re)compute embeddings only, once Bedrock works
 import { ObjectId } from 'mongodb';
 import { createLogger, initialCompliance, localDate, localToUtc, type Availability, type Volunteer } from '@app/core';
@@ -74,8 +75,14 @@ if (process.argv.includes('--embed')) {
   process.exit(0);
 }
 
-await Promise.all(['volunteers', 'shifts', 'assignments', 'attendance', 'conversations', 'settings', 'coordinators', 'formSubmissions'].map((n) => db.collection(n).deleteMany({})));
-await c.settings.insertOne(DEFAULT_SETTINGS);
+// Coordinator profiles (setup answers) and Google connections survive a reset unless --fresh-setup,
+// so re-seeding before a demo doesn't re-run the setup interview or require reconnecting Google.
+const fresh = process.argv.includes('--fresh-setup');
+const keepSettings = fresh ? null : await c.settings.findOne({ _id: 'org' });
+await Promise.all(
+  ['volunteers', 'shifts', 'assignments', 'attendance', 'conversations', 'settings', 'formSubmissions', ...(fresh ? ['coordinators'] : [])].map((n) => db.collection(n).deleteMany({})),
+);
+await c.settings.insertOne({ ...DEFAULT_SETTINGS, ...(keepSettings?.coordinatorName && { coordinatorName: keepSettings.coordinatorName }) });
 
 const ids = new Map<string, ObjectId>();
 for (const p of people) {

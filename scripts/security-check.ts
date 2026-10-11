@@ -47,7 +47,7 @@ const signed = (body: string, ts = String(Date.now()), secret = env.BRIDGE_SHARE
   const subject = (phone: string, v: number) => `${createHash('sha256').update(phone).digest('base64url').slice(0, 12)}:${v}`;
   const inAWeek = new Date(Date.now() + 7 * 86_400_000);
   const good = signLink(secret, subject(coordinator, version), inAWeek);
-  const get = (q: string, path = '/dashboard/data') => fetch(`${apiBase}${path}${q}`);
+  const get = (q: string, path = '/dashboard/console') => fetch(`${apiBase}${path}${q}`);
 
   const ok = await get(`?t=${good}`);
   check(ok.status === 200, 'dashboard serves a valid link');
@@ -55,7 +55,11 @@ const signed = (body: string, ts = String(Date.now()), secret = env.BRIDGE_SHARE
   check(!Buffer.from(good.split('.')[0]!, 'base64url').toString().includes(coordinator.slice(2)), 'dashboard link does not contain the coordinator phone number');
   check(!/\+?1?\d{10}\b|\+1\d{3}/.test(body), 'dashboard data contains no phone numbers');
   check(!/[\w.+-]+@[\w-]+\.[\w.]+/.test(body), 'dashboard data contains no email addresses');
-  check(!/"notes"|injury|incident/i.test(body), 'dashboard data contains no notes or incident/injury details');
+  check(!/injur|incident|bandag|first aid given/i.test(body), 'dashboard data contains no incident or injury details');
+  check(!/"(phone|email|notesEmbedding|docKey|pdfKey)"/.test(body), 'dashboard data has no contact fields, embeddings, or file keys');
+  check((await get(`?t=${good}`, '/dashboard')).status === 200, 'console page loads with a valid link');
+  check((await get('', '/dashboard')).status === 401, 'console page refuses a missing link');
+  check((await get('', '/dashboard/assets/..%2F..%2Findex.mjs')).status === 404, 'console assets cannot be used to read server files (path traversal)');
   check(ok.headers.get('cache-control') === 'no-store' && ok.headers.get('referrer-policy') === 'no-referrer' && !!ok.headers.get('content-security-policy'), 'dashboard sends no-store, no-referrer and CSP headers');
 
   check((await get('')).status === 401, 'dashboard rejects a missing token');

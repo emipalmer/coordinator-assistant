@@ -31,7 +31,7 @@ export class CoordinatorStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps & { allowlist: string; llmProvider: string }) {
     super(scope, id, props);
 
-    const fn = (name: string, file: string, timeout: number) =>
+    const fn = (name: string, file: string, timeout: number, extraCopies: string[] = []) =>
       new NodejsFunction(this, name, {
         entry: lambdaSrc(file),
         runtime: Runtime.NODEJS_22_X,
@@ -44,8 +44,10 @@ export class CoordinatorStack extends Stack {
           commandHooks: {
             beforeBundling: () => [],
             beforeInstall: () => [],
-            afterBundling: (_in: string, out: string) =>
-              CHART_ASSETS.map((a) => `cp ${fileURLToPath(new URL(`../../node_modules/${a}`, import.meta.url))} ${out}/`),
+            afterBundling: (_in: string, out: string) => [
+              ...CHART_ASSETS.map((a) => `cp ${fileURLToPath(new URL(`../../node_modules/${a}`, import.meta.url))} ${out}/`),
+              ...extraCopies.map((cmd) => cmd.replace('$OUT', out)),
+            ],
           },
           // ESM bundles need a real `require` for the few CJS deps that call it.
           banner: "import { createRequire as __bannerRequire } from 'module'; const require = __bannerRequire(import.meta.url);" },
@@ -124,14 +126,16 @@ export class CoordinatorStack extends Stack {
     });
 
     // Live dashboard behind signed, expiring links the agent texts to the coordinator.
-    const dashboard = fn('Dashboard', 'dashboard.ts', 15);
+    // The coordinator console (apps/web, built by `npm run deploy`) ships inside this function.
+    const webDist = fileURLToPath(new URL('../../apps/web/dist', import.meta.url));
+    const dashboard = fn('Dashboard', 'dashboard.ts', 15, [`cp -R ${webDist} $OUT/web`]);
     dashboard.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
     for (const name of ['/coord/mongodb-uri', DASHBOARD_SECRET_PARAM]) {
       StringParameter.fromSecureStringParameterAttributes(this, `DashParam${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(dashboard);
     }
     const dashInt = new HttpLambdaIntegration('DashboardInt', dashboard);
     api.addRoutes({ path: '/dashboard', methods: [HttpMethod.GET], integration: dashInt });
-    api.addRoutes({ path: '/dashboard/data', methods: [HttpMethod.GET], integration: dashInt });
+    api.addRoutes({ path: '/dashboard/{proxy+}', methods: [HttpMethod.GET], integration: dashInt });
     agent.addEnvironment('DASHBOARD_URL', `${api.apiEndpoint}/dashboard`);
     agent.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
 

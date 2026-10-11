@@ -1,6 +1,6 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { createLogger, parseAllowlist } from '@app/core';
-import { collections, getDb } from '../db.js';
+import { collections, getDb, recordAssistantMessage } from '../db.js';
 import { mongoUri, outboundQueueUrl } from '../config.js';
 import { completeConnection, coordinatorRef, verifyState } from '../google.js';
 import { sendToCoordinator } from '../outbox.js';
@@ -35,9 +35,9 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
   try {
     const c = collections(await getDb(await mongoUri()));
     const conn = await completeConnection(c, coordinator, q.code);
-    await sendToCoordinator(outboundQueueUrl(), [
-      { to: coordinator, text: `Google is connected (${conn.email}). Shifts will go on a separate "Tari" calendar in your account (I can't touch your own calendars), I'll flag when you're busy, and I can put emails in your Gmail Drafts for you to send. Want me to add your upcoming shifts to the Tari calendar now?\nA. Yes\nB. Not now` },
-    ]);
+    const text = `Google is connected (${conn.email}). Shifts will go on a separate "Tari" calendar in your account (I can't touch your own calendars), I'll flag when you're busy, and I can put emails in your Gmail Drafts for you to send. Want me to add your upcoming shifts to the Tari calendar now?\nA. Yes\nB. Not now`;
+    await recordAssistantMessage(c, coordinator, text);
+    await sendToCoordinator(outboundQueueUrl(), [{ to: coordinator, text }]);
     log.info('google connected');
     return page('Connected', 'Tari is connected to your Google account. You can close this page and go back to Messages.');
   } catch (err) {

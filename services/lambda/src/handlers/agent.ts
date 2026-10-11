@@ -1,7 +1,7 @@
 import type { SQSEvent } from 'aws-lambda';
 import { AgentEvent, createLogger, InboundMessage, parseAllowlist, splitReply, type Logger, type Settings } from '@app/core';
 import { sendToCoordinator } from '../outbox.js';
-import { collections, getDb, type Collections } from '../db.js';
+import { collapseTurns, collections, getDb, type Collections } from '../db.js';
 import { loadToolLoop, mongoUri, outboundQueueUrl } from '../config.js';
 import { systemPrompt } from '../prompt.js';
 import { ALL_TOOLS } from '../tools/index.js';
@@ -88,7 +88,7 @@ async function runTurn(from: string, userText: string, log: Logger, images: Imag
   const now = new Date();
   const convo = await c.conversations.findOne({ _id: from });
   const profile = await c.coordinators.findOne({ _id: from });
-  const history = (convo?.turns ?? []).slice(-HISTORY_TURNS).map(({ role, text }) => ({ role, text }));
+  const history = collapseTurns((convo?.turns ?? []).slice(-HISTORY_TURNS));
   // History must start with a user turn.
   while (history[0]?.role === 'assistant') history.shift();
 

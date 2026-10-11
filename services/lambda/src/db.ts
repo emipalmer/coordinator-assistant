@@ -51,3 +51,26 @@ export const collections = (db: Db) => ({
   googleConnections: db.collection<GoogleConnection>('googleConnections'),
 });
 export type Collections = ReturnType<typeof collections>;
+
+/**
+ * Save a message Tari sent outside a normal turn (e.g. from the Google sign-in callback) into the
+ * thread, so a reply like "A" to its options has context.
+ */
+export async function recordAssistantMessage(c: Collections, coordinator: string, text: string) {
+  await c.conversations.updateOne(
+    { _id: coordinator },
+    { $push: { turns: { $each: [{ role: 'assistant' as const, text, at: new Date() }], $slice: -40 } } },
+    { upsert: true },
+  );
+}
+
+/** Merge consecutive same-role turns: out-of-band messages can leave two assistant turns in a row. */
+export function collapseTurns<T extends { role: 'user' | 'assistant'; text: string }>(turns: T[]): Array<Pick<T, 'role' | 'text'>> {
+  const out: Array<Pick<T, 'role' | 'text'>> = [];
+  for (const t of turns) {
+    const last = out.at(-1);
+    if (last && last.role === t.role) last.text = `${last.text}\n\n${t.text}`;
+    else out.push({ role: t.role, text: t.text });
+  }
+  return out;
+}
