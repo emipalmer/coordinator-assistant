@@ -58,8 +58,11 @@
 
   --shadow-app: 0 6px 24px rgba(38, 31, 15, 0.1);
 
-  /* Type */
-  --font: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Type — Schibsted Grotesk. An editorial face drawn for Norwegian news, so
+     it is built for dense tabular data and long reading rather than app
+     chrome, and its letterforms have a voice where the usual UI grotesques
+     are deliberately neutral. Weights used: 400 / 500 / 600 / 700. */
+  --font: 'Schibsted Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -958,6 +961,15 @@ tbody td.pw-missing {
   line-height: 1.4;
 }
 
+/* Only shown once the table has dropped columns (see the 560px query). */
+.roster-note {
+  display: none;
+  padding: 12px 16px 0;
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
 /* ============================ Responsive ============================ */
 
 /* Tablet: the 394px rails stop earning their width. */
@@ -1130,12 +1142,44 @@ tbody td.pw-missing {
     align-self: center;
   }
 
-  /* The roster table keeps its columns and scrolls sideways rather than
-     collapsing into unreadable stacked cards. */
   thead th,
   tbody td {
     padding-left: 16px;
     padding-right: 16px;
+  }
+}
+
+/* Narrow phones: drop to the four columns a coordinator actually scans —
+   who, what state, how many hours, what they still owe. Availability and
+   skills stay reachable through the search box rather than a sideways
+   scroll, which is easy to miss and awkward one-handed. */
+@media (max-width: 560px) {
+  .col-seen,
+  .col-avail,
+  .col-skills {
+    display: none;
+  }
+
+  .roster-note {
+    display: block;
+  }
+
+  .table-scroll {
+    overflow-x: visible;
+  }
+
+  thead th,
+  tbody td {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  tbody td.name {
+    white-space: normal;
+  }
+
+  .roster-head {
+    padding: 16px 12px 12px;
   }
 }
 

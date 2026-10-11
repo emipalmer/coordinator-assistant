@@ -55,9 +55,9 @@ export function RosterTable({ data, query }: Props) {
               <th scope="col">Volunteer</th>
               <th scope="col">Status</th>
               <th scope="col" className="num">Hours</th>
-              <th scope="col">Last seen</th>
-              <th scope="col">Available</th>
-              <th scope="col">Skills</th>
+              <th scope="col" className="col-seen">Last seen</th>
+              <th scope="col" className="col-avail">Available</th>
+              <th scope="col" className="col-skills">Skills</th>
               <th scope="col">Paperwork</th>
             </tr>
           </thead>
@@ -77,9 +77,9 @@ export function RosterTable({ data, query }: Props) {
                     </span>
                   </td>
                   <td className="num">{v.totalHours.toFixed(1)}</td>
-                  <td className={quiet ? 'quiet' : undefined}>{formatLastSeen(v, data.today)}</td>
-                  <td>{formatAvailability(v.availability)}</td>
-                  <td>{v.skills.length ? v.skills.join(', ') : '—'}</td>
+                  <td className={`col-seen${quiet ? ' quiet' : ''}`}>{formatLastSeen(v, data.today)}</td>
+                  <td className="col-avail">{formatAvailability(v.availability)}</td>
+                  <td className="col-skills">{v.skills.length ? v.skills.join(', ') : '—'}</td>
                   <td className={missing.length ? 'pw-missing' : undefined}>
                     {missing.length ? `${missing.length} missing` : 'Complete'}
                   </td>
@@ -95,6 +95,13 @@ export function RosterTable({ data, query }: Props) {
           </tbody>
         </table>
       </div>
+
+      {/* Under 560px the table drops to four columns; availability, skills and
+          last-seen move here so the information is still reachable on a phone
+          without a sideways scroll. */}
+      <p className="roster-note">
+        Availability and skills are hidden at this width. Search by skill above to filter the roster.
+      </p>
 
       <p className="roster-foot">
         Hours come from attendance the coordinator logged by text. Estimated value uses the Independent Sector
