@@ -67,10 +67,14 @@ export default function App() {
 
   return (
     <div className="shell">
+      <a className="skip-link" href="#console-main">
+        Skip to roster
+      </a>
+
       <div className="app-window">
         <Sidebar current={section} onNavigate={navigate} paperworkCount={derived.paperworkCount} />
 
-        <main className="main">
+        <main className="main" id="console-main" tabIndex={-1}>
           <div ref={anchors.today} />
           <TopBar
             today={data.today}

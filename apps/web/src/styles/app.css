@@ -6,37 +6,48 @@
    ============================================================ */
 
 :root {
-  /* Surfaces */
-  --canvas-tan: #e8dfce;
-  --surface-app: #f6f1e7;
-  --surface-card: #fffdf8;
-  --surface-sunken: #efe7d8;
+  /* Surfaces — lifted off the sepia end of the tan so the UI reads fresh
+     rather than aged. Cards are pure white; the warmth lives in the canvas. */
+  --canvas-tan: #f1ece2;
+  --surface-app: #fbf8f3;
+  --surface-card: #ffffff;
+  --surface-sunken: #f2ede4;
 
-  /* Sidebar */
-  --sidebar-bg: #1f4034;
-  --sidebar-ink: #c8dbcf;
+  /* Sidebar — lighter, greener, less ink-black than the original #1F4034. */
+  --sidebar-bg: #2a5e4b;
+  --sidebar-ink: #dcebe3;
   --sidebar-ink-strong: #ffffff;
-  --sidebar-active: #2e5b4a;
+  --sidebar-active: #356b57;
 
-  /* Ink */
-  --ink: #27342c;
-  --ink-2: #5b6b61;
-  --ink-3: #8a9790;
+  /* Ink. Measured against --surface-card (#fff): --ink 11.8:1,
+     --ink-2 5.9:1, --ink-3 5.4:1. The muted tone had to go DARKER than it
+     looks here — the old #8a9790 was 2.98:1, which fails WCAG AA for the
+     12.5px hint text it is used on. Every pairing is verified by
+     `npm run check:contrast`; don't nudge these by eye. */
+  --ink: #2b3b33;
+  --ink-2: #58685f;
+  --ink-3: #5f6e65;
   --ink-on-green: #ffffff;
 
   /* Rules */
-  --rule: #eae1d2;
-  --rule-strong: #dcd0bb;
+  --rule: #ede8de;
+  --rule-strong: #e2dace;
 
-  /* Accents. Orange fills use --orange; orange TEXT uses --orange-ink,
-     which clears 4.5:1 on cream where the lighter tone would not. */
-  --green: #2e7a5e;
-  --green-deep: #1f4034;
-  --green-dim: #e6efe9;
-  --orange: #d97757;
-  --orange-ink: #b35430;
-  --orange-dim: #faede6;
-  --tan-chip: #efe4d2;
+  /* Accents, split by job so contrast is right in each place:
+       --green         5.2:1 on white — text and marks
+       --orange        3.2:1 on white — non-text marks (slots, dots, bars).
+                       These encode missing-vs-received, so they are held to
+                       the 3:1 UI-component minimum, not treated as decoration.
+       --orange-strong 4.8:1 behind white text — buttons and badges
+       --orange-ink    5.7:1 on white — orange text */
+  --green: #2b7a5c;
+  --green-deep: #2a5e4b;
+  --green-dim: #e9f4ee;
+  --orange: #d4764b;
+  --orange-strong: #b85633;
+  --orange-ink: #a64d29;
+  --orange-dim: #fdf0e9;
+  --tan-chip: #f0e8da;
 
   /* Shape */
   --r-card: 16px;
@@ -95,6 +106,26 @@ button {
   white-space: nowrap;
 }
 
+/* Lets a keyboard or screen-reader user jump past the nav straight to the
+   roster, instead of tabbing through five tabs on every page load. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 50;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  background: var(--sidebar-bg);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  transition: top 0.14s ease;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
 /* ============================ App shell ============================ */
 
 .shell {
@@ -135,7 +166,7 @@ button {
   width: 32px;
   height: 32px;
   border-radius: 9px;
-  background: var(--orange);
+  background: var(--orange-strong);
   color: var(--ink-on-green);
   display: grid;
   place-items: center;
@@ -193,7 +224,7 @@ button {
   min-width: 20px;
   padding: 1px 7px;
   border-radius: var(--r-pill);
-  background: var(--orange);
+  background: var(--orange-strong);
   color: var(--ink-on-green);
   font-size: 11px;
   font-weight: 700;
@@ -301,9 +332,11 @@ button {
 }
 
 .btn-primary {
-  padding: 9px 16px;
+  /* 44px min height: a touch target, not just a label. */
+  min-height: 44px;
+  padding: 10px 18px;
   border-radius: var(--r-pill);
-  background: var(--orange);
+  background: var(--orange-strong);
   color: var(--ink-on-green);
   font-size: 13px;
   font-weight: 600;
@@ -311,7 +344,7 @@ button {
 }
 
 .btn-primary:hover {
-  background: #c9663f;
+  background: #9f4829;
 }
 
 .avatar {
@@ -377,7 +410,9 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 394px;
   gap: 20px;
-  align-items: start;
+  /* Stretch, not start: a short card floating beside a tall one leaves a
+     void that reads as a rendering bug. */
+  align-items: stretch;
 }
 
 /* ---------- Next shift ---------- */
@@ -668,7 +703,7 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 394px;
   gap: 20px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .stack-list {
@@ -942,10 +977,18 @@ tbody td.pw-missing {
 }
 
 /* Phone: sidebar becomes a bottom tab bar, which is what a coordinator
-   checking between pallets actually needs. */
+   checking between pallets actually needs.
+
+   Mobile rules applied throughout this block:
+     - every tappable thing is at least 44x44 (WCAG 2.5.5)
+     - inputs are 16px, below which iOS Safari zooms the page on focus
+     - the tab bar clears the home indicator via safe-area-inset
+     - body text steps up to 15px for arm's-length reading */
 @media (max-width: 760px) {
   body {
-    padding-bottom: 68px;
+    font-size: 15px;
+    /* Clears the fixed tab bar plus the home indicator. */
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
   }
 
   .shell {
@@ -966,11 +1009,11 @@ tbody td.pw-missing {
     right: 0;
     z-index: 20;
     flex-direction: row;
-    align-items: center;
+    align-items: stretch;
     gap: 2px;
-    padding: 8px 6px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 6px 6px;
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
   }
 
   .brand,
@@ -985,10 +1028,15 @@ tbody td.pw-missing {
   }
 
   .nav-item {
+    position: relative;
+    flex: 1;
     flex-direction: column;
+    justify-content: center;
     gap: 3px;
-    padding: 6px 4px;
-    font-size: 10.5px;
+    /* 44px floor so each tab is a real touch target. */
+    min-height: 48px;
+    padding: 6px 2px;
+    font-size: 11px;
     text-align: center;
   }
 
@@ -996,9 +1044,21 @@ tbody td.pw-missing {
     flex: none;
   }
 
+  .nav-item[aria-current='page'] {
+    background: var(--sidebar-active);
+  }
+
+  /* Keep focus rings inside the bar rather than clipped by its edge. */
+  .nav-item:focus-visible {
+    outline-offset: -2px;
+    outline-color: #fff;
+  }
+
   .nav-badge {
     position: absolute;
-    margin: -4px 0 0 16px;
+    top: 2px;
+    left: 50%;
+    margin-left: 6px;
   }
 
   .main {
@@ -1013,6 +1073,18 @@ tbody td.pw-missing {
   .search {
     order: 3;
     width: 100%;
+    min-height: 44px;
+  }
+
+  /* 16px exactly: anything smaller makes iOS Safari zoom on focus, which
+     strands the coordinator at 2x with no obvious way back. */
+  .search input {
+    font-size: 16px;
+  }
+
+  .btn-primary {
+    flex: 1;
+    min-width: 140px;
   }
 
   .tiles {
@@ -1021,6 +1093,25 @@ tbody td.pw-missing {
 
   .shift-card h2 {
     font-size: 24px;
+  }
+
+  /* Suggest/Confirmed chips become tappable rows, not decorations. */
+  .crew-row {
+    min-height: 56px;
+  }
+
+  .crew-row .pill {
+    min-height: 32px;
+    padding: 7px 12px;
+  }
+
+  /* Bar hit areas widen so a thumb can reach a value. */
+  .bars {
+    height: 72px;
+  }
+
+  .bar-col {
+    min-width: 24px;
   }
 
   .capacity .slots {
