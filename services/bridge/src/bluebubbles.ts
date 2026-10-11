@@ -1,0 +1,32 @@
+import { randomUUID } from 'node:crypto';
+
+// Thin client over the BlueBubbles server REST API (auth is the server password as a query param).
+export function createBlueBubbles(baseUrl: string, password: string) {
+  const url = (path: string) => `${baseUrl}${path}?password=${encodeURIComponent(password)}`;
+
+  async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await fetch(url(path), {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(30_000),
+    });
+    const json = (await res.json().catch(() => ({}))) as { status?: number; message?: string; data?: T };
+    if (!res.ok || (json.status && json.status >= 400)) {
+      throw new Error(`BlueBubbles ${method} ${path} failed: ${res.status} ${json.message ?? ''}`);
+    }
+    return json.data as T;
+  }
+
+  return {
+    // Without the Private API, AppleScript is the only send method available.
+    sendText: (chatGuid: string, message: string) =>
+      call('POST', '/api/v1/message/text', { chatGuid, message, tempGuid: `temp-${randomUUID()}`, method: 'apple-script' }),
+    listWebhooks: () => call<Array<{ id: number; url: string; events: string[] }>>('GET', '/api/v1/webhook'),
+    addWebhook: (webhookUrl: string, events: string[]) => call('POST', '/api/v1/webhook', { url: webhookUrl, events }),
+  };
+}
+export type BlueBubbles = ReturnType<typeof createBlueBubbles>;
+
+/** 1:1 iMessage chats are addressed as iMessage;-;<handle>. */
+export const directChatGuid = (e164: string) => `iMessage;-;${e164}`;

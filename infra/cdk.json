@@ -1,0 +1,1 @@
+{ "app": "npx tsx --env-file=../.env bin/app.ts" }

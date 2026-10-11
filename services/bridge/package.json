@@ -1,0 +1,12 @@
+{
+  "name": "@app/bridge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "tsx --env-file=../../.env src/main.ts" },
+  "dependencies": {
+    "@app/core": "*",
+    "@aws-sdk/client-sqs": "^3.1149.0",
+    "zod": "^4.1.0"
+  }
+}

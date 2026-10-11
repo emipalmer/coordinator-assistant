@@ -1,0 +1,17 @@
+{
+  "name": "coordinator-assistant",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "services/*", "infra"],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -b",
+    "bridge": "npm run start -w services/bridge"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.0"
+  }
+}
