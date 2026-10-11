@@ -78,6 +78,6 @@ See [NOTES.md](NOTES.md) for setup from zero (BlueBubbles, Bedrock, Atlas, CDK) 
 npm install
 npm test                                       # 44 unit tests
 npm run deploy -w infra                        # CDK
-npx tsx --env-file=.env scripts/seed.ts        # synthetic data + vector index
-npm run bridge                                 # on the Mac running BlueBubbles
+npm run seed                                   # synthetic data + vector index
+npm run bridge:forever                         # on the Mac running BlueBubbles (auto-restarts)
 ```

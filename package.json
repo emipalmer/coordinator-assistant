@@ -2,11 +2,18 @@
   "name": "coordinator-assistant",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "services/*", "infra"],
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "infra"
+  ],
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "bridge": "npm run start -w services/bridge"
+    "bridge": "npm run start -w services/bridge",
+    "bridge:forever": "./scripts/run-bridge.sh",
+    "seed": "tsx --env-file=.env scripts/seed.ts",
+    "say": "tsx --env-file=.env scripts/say.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
