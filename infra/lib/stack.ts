@@ -60,7 +60,7 @@ export class CoordinatorStack extends Stack {
       ...secureQueue,
       // Lets the scheduler enqueue without an explicit dedup id; ingress still sets its own.
       contentBasedDeduplication: true,
-      visibilityTimeout: Duration.seconds(6 * 120),
+      visibilityTimeout: Duration.seconds(6 * 60),
       deadLetterQueue: { queue: inboundDlq, maxReceiveCount: 2 },
     });
     const outbound = new Queue(this, 'Outbound', { fifo: true, visibilityTimeout: Duration.seconds(60), ...secureQueue });
@@ -85,7 +85,8 @@ export class CoordinatorStack extends Stack {
       autoDeleteObjects: true,
     });
 
-    const agent = fn('Agent', 'agent.ts', 120);
+    // Typical turns take 3-16s; a tight timeout keeps a stuck turn from blocking the coordinator's FIFO group for long.
+    const agent = fn('Agent', 'agent.ts', 60);
     agent.addEnvironment('FILES_BUCKET', files.bucketName);
     files.grantReadWrite(agent);
     agent.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);

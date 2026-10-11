@@ -45,7 +45,8 @@ It only ever talks to the coordinator. When a volunteer should hear something (a
                                          ├─ MongoDB Atlas: volunteers, shifts, assignments,
                                          │   attendance, conversations, formSubmissions
                                          │   + Atlas Vector Search (Titan Text Embeddings V2)
-                                         ├─ Bedrock: Titan embeddings, Claude (Converse API)
+                                         ├─ Bedrock: Titan embeddings; Claude via the Converse API
+                                         │   (runs on the Anthropic API until Bedrock model access is approved)
                                          └─ S3: generated PDFs / .ics (1-hour presigned links)
 ```
 

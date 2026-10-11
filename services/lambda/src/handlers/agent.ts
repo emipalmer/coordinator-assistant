@@ -15,6 +15,8 @@ import { FORM_TEMPLATES, missingFields } from '@app/core';
 
 const baseLog = createLogger({ svc: 'agent' });
 const HISTORY_TURNS = 12;
+const SLOW_TOOLS = new Set(['finish_form', 'impact_report', 'onboarding_packet', 'make_chart', 'shift_calendar_file', 'draft_email', 'sync_shifts_to_calendar']);
+const ACKS = ['On it, one moment…', 'Working on that now…', 'Putting that together…'];
 const toolDefs = toToolDefs(ALL_TOOLS);
 const coordinators = [...parseAllowlist(process.env.COORDINATOR_ALLOWLIST)];
 let loop: ToolLoop | undefined;
@@ -91,7 +93,16 @@ async function runTurn(from: string, userText: string, log: Logger, images: Imag
   while (history[0]?.role === 'assistant') history.shift();
 
   const ctx = toolCtx(c, log, from, settings.timezone);
-  const execute = createExecutor(ALL_TOOLS, ctx);
+  const run = createExecutor(ALL_TOOLS, ctx);
+  // There's no typing indicator without BlueBubbles' Private API, so slow work gets a quick heads-up.
+  let acked = false;
+  const execute: typeof run = async (name, input) => {
+    if (!acked && SLOW_TOOLS.has(name)) {
+      acked = true;
+      await sendToCoordinator(outboundQueueUrl(), [{ to: from, text: ACKS[Math.floor(Math.random() * ACKS.length)]! }]).catch(() => {});
+    }
+    return run(name, input);
+  };
   const reply = await loop({ system: systemPrompt(settings, now, profile), history, user: setupContext(profile) + (await formContext(c, convo?.activeFormSubmissionId)) + imageContext(msgKeys(images)) + userText, images, tools: toolDefs, execute, log });
 
   await c.conversations.updateOne(
