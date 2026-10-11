@@ -193,12 +193,15 @@ export const markPaperwork = defineTool({
     name: z.string(),
     item: z.enum(['application', 'waiver', 'emergencyContact', 'codeOfConduct', 'guardianConsent']),
     received: z.boolean().default(true),
+    photoKey: z.string().startsWith('inbound/').optional().describe('Storage key of the photo of the signed form, if one was sent'),
   }),
   async run(ctx, input) {
     const found = await resolveVolunteer(ctx, input.name);
     if ('error' in found) return { ok: false, content: found.error };
     const v = found.volunteer;
-    const entry = input.received ? { status: 'received' as const, receivedAt: new Date() } : { status: 'missing' as const };
+    const entry = input.received
+      ? { status: 'received' as const, receivedAt: new Date(), ...(input.photoKey && { docKey: input.photoKey }) }
+      : { status: 'missing' as const };
     const compliance = { ...v.compliance, [input.item]: entry };
     const stillMissing = missingCompliance(compliance);
     // Fully onboarded volunteers become active automatically.

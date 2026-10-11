@@ -5,6 +5,7 @@ import { createBlueBubbles } from './bluebubbles.js';
 import { parseWebhook } from './webhook.js';
 import { startOutboundPoller } from './outbound.js';
 import { watchCancellations } from './changes.js';
+import { uploadImages } from './photos.js';
 
 const log = createLogger({ svc: 'bridge' });
 const cfg = loadConfig();
@@ -62,6 +63,7 @@ const server = createServer((req, res) => {
       if (!isAllowlisted(msg.from, cfg.allowlist)) return log.warn('dropped non-allowlisted sender');
       if (!firstTime(msg.messageId)) return;
       log.info('inbound', { messageId: msg.messageId, from: msg.from, len: msg.text.length, attachments: msg.attachments.length });
+      if (msg.attachments.length && cfg.FILES_BUCKET) msg.attachments = await uploadImages(msg, bb, cfg.FILES_BUCKET, cfg.AWS_REGION, log);
       await forward(msg);
     } catch (err) {
       log.error('webhook handling failed', { err });

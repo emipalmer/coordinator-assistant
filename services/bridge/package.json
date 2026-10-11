@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@app/core": "*",
+    "@aws-sdk/client-s3": "^3.1149.0",
     "@aws-sdk/client-sqs": "^3.1149.0",
     "mongodb": "^7.7.0",
     "zod": "^4.1.0"

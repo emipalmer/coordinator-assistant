@@ -107,5 +107,6 @@ export class CoordinatorStack extends Stack {
 
     new CfnOutput(this, 'IngressUrl', { value: `${api.apiEndpoint}/inbound` });
     new CfnOutput(this, 'OutboundQueueUrl', { value: outbound.queueUrl });
+    new CfnOutput(this, 'FilesBucket', { value: files.bucketName });
   }
 }

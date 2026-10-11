@@ -4,6 +4,7 @@ export const Attachment = z.object({
   guid: z.string(),
   mimeType: z.string().nullable().optional(),
   transferName: z.string().nullable().optional(),
+  s3Key: z.string().optional(), // set by the bridge for images it uploaded
 });
 export type Attachment = z.infer<typeof Attachment>;
 

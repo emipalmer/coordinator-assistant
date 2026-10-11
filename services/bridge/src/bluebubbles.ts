@@ -34,6 +34,12 @@ export function createBlueBubbles(baseUrl: string, password: string) {
       const json = (await res.json().catch(() => ({}))) as { status?: number; message?: string };
       if (!res.ok || (json.status && json.status >= 400)) throw new Error(`BlueBubbles attachment failed: ${res.status} ${json.message ?? ''}`);
     },
+    /** BlueBubbles converts HEIC to JPEG unless `original` is set; width keeps uploads small. */
+    downloadAttachment: async (guid: string) => {
+      const res = await fetch(`${url(`/api/v1/attachment/${encodeURIComponent(guid)}/download`)}&width=1600`, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`attachment download ${res.status}`);
+      return { bytes: new Uint8Array(await res.arrayBuffer()), contentType: res.headers.get('content-type') ?? 'application/octet-stream' };
+    },
     listWebhooks: () => call<Array<{ id: number; url: string; events: string[] }>>('GET', '/api/v1/webhook'),
     addWebhook: (webhookUrl: string, events: string[]) => call('POST', '/api/v1/webhook', { url: webhookUrl, events }),
     deleteWebhook: (id: number) => call('DELETE', `/api/v1/webhook/${id}`),

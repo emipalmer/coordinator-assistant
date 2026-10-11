@@ -7,7 +7,8 @@ import { systemPrompt } from '../prompt.js';
 import { ALL_TOOLS } from '../tools/index.js';
 import { createExecutor, toToolDefs } from '../tools/registry.js';
 import { describeCancellation } from '../tools/proactive.js';
-import type { ToolLoop } from '../llm.js';
+import type { ImageInput, ToolLoop } from '../llm.js';
+import { readFile } from '../files.js';
 import type { StoredFile } from '../files.js';
 import { FORM_TEMPLATES, missingFields } from '@app/core';
 
@@ -31,7 +32,8 @@ export async function handler(event: SQSEvent) {
     const msg = InboundMessage.parse(body);
     const log = baseLog.child({ messageId: msg.messageId });
     try {
-      await runTurn(msg.from, msg.text || (msg.attachments.length ? '(sent an attachment)' : ''), log);
+      const images = await loadImages(msg, log);
+      await runTurn(msg.from, msg.text || (images.length ? '(sent a photo)' : msg.attachments.length ? '(sent an attachment)' : ''), log, images);
     } catch (err) {
       log.error('agent failed', { err });
       // Tell the coordinator instead of going silent; don't rethrow, or SQS would redeliver and double-apply tools.
@@ -72,7 +74,7 @@ const toolCtx = (c: Collections, log: Logger, coordinator: string, timezone = DE
   c, log, now: new Date(), timezone, coordinator, attachments: [] as StoredFile[],
 });
 
-async function runTurn(from: string, userText: string, log: Logger) {
+async function runTurn(from: string, userText: string, log: Logger, images: ImageInput[] = []) {
   const c = await getCollections();
   loop ??= await loadToolLoop();
   const settings = (await c.settings.findOne({ _id: 'org' })) ?? DEFAULT_SETTINGS;
@@ -84,7 +86,7 @@ async function runTurn(from: string, userText: string, log: Logger) {
 
   const ctx = toolCtx(c, log, from, settings.timezone);
   const execute = createExecutor(ALL_TOOLS, ctx);
-  const reply = await loop({ system: systemPrompt(settings, now), history, user: (await formContext(c, convo?.activeFormSubmissionId)) + userText, tools: toolDefs, execute, log });
+  const reply = await loop({ system: systemPrompt(settings, now), history, user: (await formContext(c, convo?.activeFormSubmissionId)) + imageContext(msgKeys(images)) + userText, images, tools: toolDefs, execute, log });
 
   await c.conversations.updateOne(
     { _id: from },
@@ -109,3 +111,28 @@ async function formContext(c: Collections, id: unknown): Promise<string> {
   const missing = missingFields(t, sub.values).map((f) => f.key);
   return `[Context: a ${t.title} is in progress (id ${String(sub._id)}); still needed: ${missing.join(', ') || 'nothing, ready to finish'}. Use update_form for answers.]\n`;
 }
+
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+type KeyedImage = ImageInput & { key: string };
+
+/** Photos the bridge already put in S3 (e.g. a signed form), limited to formats the model reads. */
+async function loadImages(msg: InboundMessage, log: Logger): Promise<KeyedImage[]> {
+  const out: KeyedImage[] = [];
+  for (const a of msg.attachments) {
+    if (!a.s3Key) continue;
+    const f = await readFile(a.s3Key);
+    const type = (f.contentType ?? a.mimeType ?? '').toLowerCase();
+    const mediaType = IMAGE_TYPES.find((t) => t === type);
+    if (!mediaType) {
+      log.warn('unsupported image type', { type });
+      continue;
+    }
+    out.push({ bytes: f.bytes, mediaType, key: a.s3Key });
+  }
+  return out.slice(0, 4);
+}
+
+const msgKeys = (images: ImageInput[]) => images.map((i) => (i as KeyedImage).key).filter(Boolean);
+
+// Tells the model the storage key so it can link the photo to the volunteer's record.
+const imageContext = (keys: string[]) => (keys.length ? `[Context: ${keys.length} photo(s) attached; storage key(s): ${keys.join(', ')}]\n` : '');

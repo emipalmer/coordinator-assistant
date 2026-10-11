@@ -19,3 +19,8 @@ export async function storeFile(prefix: string, filename: string, body: Uint8Arr
   const url = await getSignedUrl(s3, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 3600 });
   return { key, url, filename };
 }
+
+export async function readFile(key: string): Promise<{ bytes: Uint8Array; contentType?: string }> {
+  const res = await s3.send(new GetObjectCommand({ Bucket: requireEnv('FILES_BUCKET'), Key: key }));
+  return { bytes: await res.Body!.transformToByteArray(), contentType: res.ContentType };
+}

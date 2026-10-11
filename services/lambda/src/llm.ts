@@ -15,10 +15,15 @@ export interface Turn {
   role: 'user' | 'assistant';
   text: string;
 }
+export interface ImageInput {
+  bytes: Uint8Array;
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+}
 export interface LoopInput {
   system: string;
   history: Turn[];
   user: string;
+  images?: ImageInput[];
   tools: ToolDef[];
   execute: (name: string, input: unknown) => Promise<ToolOutcome>;
   log: Logger;
@@ -40,11 +45,15 @@ export function createToolLoop(provider: string, opts: { model: string; anthropi
 
 function bedrockLoop(modelId: string): ToolLoop {
   const client = new BedrockRuntimeClient({});
-  return async ({ system, history, user, tools, execute, log }) => {
-    const messages: Message[] = [...history, { role: 'user' as const, text: user }].map((t) => ({
-      role: t.role,
-      content: [{ text: t.text }],
-    }));
+  return async ({ system, history, user, images = [], tools, execute, log }) => {
+    const messages: Message[] = history.map((t) => ({ role: t.role, content: [{ text: t.text }] }));
+    messages.push({
+      role: 'user',
+      content: [
+        ...images.map((i) => ({ image: { format: i.mediaType.split('/')[1] as 'jpeg' | 'png' | 'gif' | 'webp', source: { bytes: i.bytes } } })),
+        { text: user },
+      ],
+    });
     const toolConfig = {
       tools: [
         ...tools.map((t) => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema as never } } })),
@@ -88,11 +97,15 @@ function bedrockLoop(modelId: string): ToolLoop {
 function anthropicLoop(model: string, apiKey: string | undefined): ToolLoop {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY is required for the anthropic provider');
   const client = new Anthropic({ apiKey });
-  return async ({ system, history, user, tools, execute, log }) => {
-    const messages: Anthropic.Beta.BetaMessageParam[] = [...history, { role: 'user' as const, text: user }].map((t) => ({
-      role: t.role,
-      content: t.text,
-    }));
+  return async ({ system, history, user, images = [], tools, execute, log }) => {
+    const messages: Anthropic.Beta.BetaMessageParam[] = history.map((t) => ({ role: t.role, content: t.text }));
+    messages.push({
+      role: 'user',
+      content: [
+        ...images.map((i) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: i.mediaType, data: Buffer.from(i.bytes).toString('base64') } })),
+        { type: 'text' as const, text: user },
+      ],
+    });
     const apiTools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema }));
     for (let step = 0; step < MAX_STEPS; step++) {
       const res = await client.beta.messages.create({

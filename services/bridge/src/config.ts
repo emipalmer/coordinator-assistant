@@ -13,6 +13,8 @@ const Env = z.object({
   AWS_REGION: z.string().default('us-east-1'),
   // Optional: enables the change-stream watcher for backfill alerts.
   MONGODB_URI: z.string().optional(),
+  // Optional: enables photo intake (signed forms).
+  FILES_BUCKET: z.string().optional(),
 });
 
 export function loadConfig() {
