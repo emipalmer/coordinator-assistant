@@ -1,5 +1,5 @@
 import { MongoClient, type Db } from 'mongodb';
-import type { AttendanceRecord, Assignment, FormValues, Settings, Shift, Volunteer } from '@app/core';
+import type { AttendanceRecord, Assignment, CoordinatorProfile, FormValues, Settings, Shift, Volunteer } from '@app/core';
 
 let client: MongoClient | undefined;
 
@@ -37,5 +37,6 @@ export const collections = (db: Db) => ({
   conversations: db.collection<ConversationDoc>('conversations'),
   settings: db.collection<Settings>('settings'),
   formSubmissions: db.collection<FormSubmission>('formSubmissions'),
+  coordinators: db.collection<CoordinatorProfile>('coordinators'),
 });
 export type Collections = ReturnType<typeof collections>;

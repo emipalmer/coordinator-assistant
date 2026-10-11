@@ -18,7 +18,16 @@ export function missingFields(t: FormTemplate, values: FormValues): FieldDef[] {
 
 /** The next 1-2 questions to text. Two at a time keeps the thread short without overwhelming. */
 export function nextQuestions(t: FormTemplate, values: FormValues, max = 2): string[] {
-  return missingFields(t, values).slice(0, max).map((f) => f.ask);
+  return missingFields(t, values).slice(0, max).map(questionText);
+}
+
+const LETTERS = 'ABCDEFGH';
+
+/** Choice fields become a lettered mini-poll so the coordinator can answer with one letter. */
+export function questionText(f: FieldDef): string {
+  const opts = f.type === 'boolean' ? ['Yes', 'No'] : f.type === 'enum' ? (f.options ?? []).map((o) => o.charAt(0).toUpperCase() + o.slice(1)) : [];
+  if (!opts.length) return f.ask;
+  return `${f.ask}\n${opts.map((o, i) => `${LETTERS[i]}. ${o}`).join('\n')}`;
 }
 
 type Coerced = { ok: true; value: FieldValue } | { ok: false; error: string };

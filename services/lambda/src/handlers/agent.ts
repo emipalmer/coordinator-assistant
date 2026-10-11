@@ -7,6 +7,7 @@ import { systemPrompt } from '../prompt.js';
 import { ALL_TOOLS } from '../tools/index.js';
 import { createExecutor, toToolDefs } from '../tools/registry.js';
 import { describeCancellation } from '../tools/proactive.js';
+import { setupContext } from '../tools/coordinator.js';
 import type { ImageInput, ToolLoop } from '../llm.js';
 import { readFile } from '../files.js';
 import type { StoredFile } from '../files.js';
@@ -58,6 +59,10 @@ async function handleEvent(event: AgentEvent, log: Logger) {
     instruction = `[Automatic alert] ${facts.volunteer} just dropped out of ${facts.shiftTitle} (${facts.when}, shift id ${facts.shiftId}); ${facts.openSpots} spot(s) now open. Tell the coordinator in one line, call suggest_backfill for that shift, list the top candidates with a short reason each, and write one [[draft]] invite for the best fit.`;
   }
   for (const to of coordinators) {
+    if (event.type === 'daily_check') {
+      const profile = await c.coordinators.findOne({ _id: to });
+      if (profile?.prefs?.dailyCheck === false) continue; // opted out during setup
+    }
     try {
       await runTurn(to, instruction, log.child({ to }));
     } catch (err) {
@@ -80,13 +85,14 @@ async function runTurn(from: string, userText: string, log: Logger, images: Imag
   const settings = (await c.settings.findOne({ _id: 'org' })) ?? DEFAULT_SETTINGS;
   const now = new Date();
   const convo = await c.conversations.findOne({ _id: from });
+  const profile = await c.coordinators.findOne({ _id: from });
   const history = (convo?.turns ?? []).slice(-HISTORY_TURNS).map(({ role, text }) => ({ role, text }));
   // History must start with a user turn.
   while (history[0]?.role === 'assistant') history.shift();
 
   const ctx = toolCtx(c, log, from, settings.timezone);
   const execute = createExecutor(ALL_TOOLS, ctx);
-  const reply = await loop({ system: systemPrompt(settings, now), history, user: (await formContext(c, convo?.activeFormSubmissionId)) + imageContext(msgKeys(images)) + userText, images, tools: toolDefs, execute, log });
+  const reply = await loop({ system: systemPrompt(settings, now, profile), history, user: setupContext(profile) + (await formContext(c, convo?.activeFormSubmissionId)) + imageContext(msgKeys(images)) + userText, images, tools: toolDefs, execute, log });
 
   await c.conversations.updateOne(
     { _id: from },

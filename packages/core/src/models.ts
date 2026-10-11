@@ -76,6 +76,8 @@ export interface Settings {
   timezone: string;
   hourlyValueUsd: number;
   coordinatorName?: string;
+  /** Bumped to revoke all dashboard links. */
+  dashboardLinkVersion?: number;
 }
 
 /** New volunteers start with everything missing; guardian consent only applies to minors. */
@@ -91,4 +93,19 @@ export function initialCompliance(isMinor: boolean): Compliance {
 
 export function missingCompliance(c: Compliance): ComplianceItem[] {
   return COMPLIANCE_ITEMS.filter((k) => c[k].status === 'missing');
+}
+
+/** Per-coordinator preferences, gathered by the first-conversation setup. */
+export interface CoordinatorProfile {
+  _id: string; // E.164
+  name?: string;
+  prefs: {
+    replyLength?: 'brief' | 'detailed';
+    draftTone?: 'warm' | 'professional' | 'casual';
+    emoji?: boolean;
+    dailyCheck?: boolean;
+    draftSignOff?: string;
+  };
+  onboardedAt?: Date;
+  createdAt: Date;
 }

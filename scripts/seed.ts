@@ -74,7 +74,7 @@ if (process.argv.includes('--embed')) {
   process.exit(0);
 }
 
-await Promise.all(['volunteers', 'shifts', 'assignments', 'attendance', 'conversations', 'settings'].map((n) => db.collection(n).deleteMany({})));
+await Promise.all(['volunteers', 'shifts', 'assignments', 'attendance', 'conversations', 'settings', 'coordinators', 'formSubmissions'].map((n) => db.collection(n).deleteMany({})));
 await c.settings.insertOne(DEFAULT_SETTINGS);
 
 const ids = new Map<string, ObjectId>();

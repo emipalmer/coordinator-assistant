@@ -1,6 +1,6 @@
-# Coordinator Assistant
+# Tari: a volunteer coordinator's assistant
 
-An iMessage assistant for nonprofit volunteer coordinators. The coordinator texts it like a colleague ("Add Taylor, free Saturday mornings, loves animals", "Sam cut his hand on the dock yesterday") and it keeps the roster, logs hours, fills out forms, and drafts the messages volunteers should receive.
+Tari is a warm, iMessage-based assistant for nonprofit volunteer coordinators. On first contact it runs a short setup (lettered-option questions, so answering is one tap of a letter) and adapts to the coordinator's preferences. The coordinator texts it like a colleague ("Add Taylor, free Saturday mornings, loves animals", "Sam cut his hand on the dock yesterday") and it keeps the roster, logs hours, fills out forms, and drafts the messages volunteers should receive.
 
 It only ever talks to the coordinator. When a volunteer should hear something (a birthday wish, a check-in, a shift invite), the assistant texts the coordinator a **draft** in its own bubble to forward. The coordinator stays the human in the loop.
 
@@ -15,6 +15,8 @@ It only ever talks to the coordinator. When a volunteer should hear something (a
 | "Hours report for September for the board" | Impact PDF: hours, volunteers, shifts, dollar value at a configurable rate (default $36.14/h, Independent Sector 2026) |
 | "Send me an onboarding packet for Jordan" | Pre-filled packet PDF with guardian consent page for minors |
 | *(photo of a signed form)* | Claude vision reads name + signed sections, marks paperwork received |
+| "Graph our hours by month" | Chart image rendered in AWS (no third-party chart service) |
+| "Send me the dashboard" | Private, expiring link to a live dashboard (design in progress) |
 | "Calendar invite for Saturday pantry" | `.ics` with a day-before reminder, plus a draft note to forward |
 | *(8am daily)* | Birthdays and volunteers we haven't seen in 45+ days, each with a drafted message |
 | *(a volunteer drops out)* | Change stream fires → ranked backfill candidates + drafted invite |
@@ -59,6 +61,10 @@ It only ever talks to the coordinator. When a volunteer should hear something (a
 - Names are resolved strictly: ambiguous names prompt a question, never a guess.
 - No SSNs or government IDs; W-4/I-9/background checks are out of scope.
 - Secrets live in SSM Parameter Store (SecureString) and a gitignored `.env`; generated files sit in a private S3 bucket.
+- Dashboard links are signed, expire in 7 days, carry no phone number, can be revoked by text ("revoke dashboard links"), and are served with no-store / no-referrer / CSP headers. The dashboard data has no contact details, notes, or incident details.
+- Drafts for one volunteer never include another volunteer's private details (health, contact, birthday, paperwork, why someone dropped out).
+- API Gateway is rate-limited; SQS queues are encrypted and SSL-only; logs record ids and sizes, never message text.
+- `npm run security-check` attacks every entry point (28 checks: forged/stale/replayed signatures, strangers, dashboard token tampering/expiry/revocation, public S3 access, network reachability of the bridge, log contents, committed secrets).
 - **Demo data is synthetic** (`scripts/seed.ts`, fictional 555-01xx numbers).
 
 ## Repo layout

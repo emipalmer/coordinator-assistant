@@ -28,6 +28,11 @@ describe('incident report flow', () => {
     expect(r.unknownKeys).toEqual(['bogus']);
   });
 
+  it('turns choice fields into lettered options', () => {
+    const v = { incidentDate: '2026-10-10', incidentTime: '10:00', location: 'dock' };
+    expect(nextQuestions(incidentReport, v, 1)[0]).toBe('Was it an injury, near miss, property damage, or something else?\nA. Injury\nB. Near miss\nC. Property damage\nD. Other');
+  });
+
   it('asks at most two questions at a time, in form order', () => {
     expect(nextQuestions(incidentReport, {})).toEqual(['What date did it happen?', 'About what time?']);
   });

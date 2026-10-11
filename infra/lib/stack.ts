@@ -1,12 +1,12 @@
 import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
-import { HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
+import { CfnStage, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Architecture, Runtime } from 'aws-cdk-lib/aws-lambda';
 import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { Queue } from 'aws-cdk-lib/aws-sqs';
+import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import { Schedule, ScheduleExpression, ScheduleTargetInput } from 'aws-cdk-lib/aws-scheduler';
 import { SqsSendMessage } from 'aws-cdk-lib/aws-scheduler-targets';
 import { TimeZone } from 'aws-cdk-lib';
@@ -19,7 +19,13 @@ import { fileURLToPath } from 'node:url';
 const lambdaSrc = (file: string) => fileURLToPath(new URL(`../../services/lambda/src/handlers/${file}`, import.meta.url));
 
 export const BRIDGE_SECRET_PARAM = '/coord/bridge-secret';
-const SECRET_PARAMS = ['/coord/mongodb-uri', '/coord/anthropic-api-key'];
+const CHART_ASSETS = [
+  '@resvg/resvg-wasm/index_bg.wasm',
+  '@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf',
+  '@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf',
+];
+const SECRET_PARAMS = ['/coord/mongodb-uri', '/coord/anthropic-api-key', '/coord/dashboard-secret'];
+const DASHBOARD_SECRET_PARAM = '/coord/dashboard-secret';
 
 export class CoordinatorStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps & { allowlist: string; llmProvider: string }) {
@@ -34,21 +40,30 @@ export class CoordinatorStack extends Stack {
         timeout: Duration.seconds(timeout),
         logRetention: RetentionDays.ONE_WEEK,
         bundling: { format: OutputFormat.ESM, target: 'node22', sourceMap: true,
+          // Chart PNGs: resvg's wasm and the Inter font are read from beside the bundle at runtime.
+          commandHooks: {
+            beforeBundling: () => [],
+            beforeInstall: () => [],
+            afterBundling: (_in: string, out: string) =>
+              CHART_ASSETS.map((a) => `cp ${fileURLToPath(new URL(`../../node_modules/${a}`, import.meta.url))} ${out}/`),
+          },
           // ESM bundles need a real `require` for the few CJS deps that call it.
-          banner: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);" },
+          banner: "import { createRequire as __bannerRequire } from 'module'; const require = __bannerRequire(import.meta.url);" },
         environment: { COORDINATOR_ALLOWLIST: props.allowlist, NODE_OPTIONS: '--enable-source-maps' },
       });
 
     // FIFO + per-coordinator group id keeps a conversation strictly ordered.
-    const inboundDlq = new Queue(this, 'InboundDlq', { fifo: true, retentionPeriod: Duration.days(4) });
+    const secureQueue = { encryption: QueueEncryption.SQS_MANAGED, enforceSSL: true };
+    const inboundDlq = new Queue(this, 'InboundDlq', { fifo: true, retentionPeriod: Duration.days(4), ...secureQueue });
     const inbound = new Queue(this, 'Inbound', {
       fifo: true,
+      ...secureQueue,
       // Lets the scheduler enqueue without an explicit dedup id; ingress still sets its own.
       contentBasedDeduplication: true,
       visibilityTimeout: Duration.seconds(6 * 120),
       deadLetterQueue: { queue: inboundDlq, maxReceiveCount: 2 },
     });
-    const outbound = new Queue(this, 'Outbound', { fifo: true, visibilityTimeout: Duration.seconds(60) });
+    const outbound = new Queue(this, 'Outbound', { fifo: true, visibilityTimeout: Duration.seconds(60), ...secureQueue });
 
     const bridgeSecret = StringParameter.fromSecureStringParameterAttributes(this, 'BridgeSecret', {
       parameterName: BRIDGE_SECRET_PARAM,
@@ -91,6 +106,8 @@ export class CoordinatorStack extends Stack {
     outbound.grantSendMessages(agent);
 
     const api = new HttpApi(this, 'Api');
+    // One coordinator texts a few times a minute; cap everything else (cost and abuse protection).
+    (api.defaultStage!.node.defaultChild as CfnStage).defaultRouteSettings = { throttlingRateLimit: 5, throttlingBurstLimit: 10 };
     const ingressInt = new HttpLambdaIntegration('IngressInt', ingress);
     api.addRoutes({ path: '/inbound', methods: [HttpMethod.POST], integration: ingressInt });
     api.addRoutes({ path: '/events', methods: [HttpMethod.POST], integration: ingressInt });
@@ -104,6 +121,18 @@ export class CoordinatorStack extends Stack {
         input: ScheduleTargetInput.fromObject({ kind: 'event', type: 'daily_check', eventId: 'daily-<aws.scheduler.scheduled-time>' }),
       }),
     });
+
+    // Live dashboard behind signed, expiring links the agent texts to the coordinator.
+    const dashboard = fn('Dashboard', 'dashboard.ts', 15);
+    dashboard.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
+    for (const name of ['/coord/mongodb-uri', DASHBOARD_SECRET_PARAM]) {
+      StringParameter.fromSecureStringParameterAttributes(this, `DashParam${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(dashboard);
+    }
+    const dashInt = new HttpLambdaIntegration('DashboardInt', dashboard);
+    api.addRoutes({ path: '/dashboard', methods: [HttpMethod.GET], integration: dashInt });
+    api.addRoutes({ path: '/dashboard/data', methods: [HttpMethod.GET], integration: dashInt });
+    agent.addEnvironment('DASHBOARD_URL', `${api.apiEndpoint}/dashboard`);
+    agent.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
 
     new CfnOutput(this, 'IngressUrl', { value: `${api.apiEndpoint}/inbound` });
     new CfnOutput(this, 'OutboundQueueUrl', { value: outbound.queueUrl });
