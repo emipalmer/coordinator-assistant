@@ -22,6 +22,18 @@ export function createBlueBubbles(baseUrl: string, password: string) {
     // Without the Private API, AppleScript is the only send method available.
     sendText: (chatGuid: string, message: string) =>
       call('POST', '/api/v1/message/text', { chatGuid, message, tempGuid: `temp-${randomUUID()}`, method: 'apple-script' }),
+    /** Multipart upload; AppleScript sends need a tempGuid. */
+    sendAttachment: async (chatGuid: string, filename: string, bytes: Uint8Array<ArrayBuffer>, contentType: string) => {
+      const form = new FormData();
+      form.set('chatGuid', chatGuid);
+      form.set('tempGuid', `temp-${randomUUID()}`);
+      form.set('name', filename);
+      form.set('method', 'apple-script');
+      form.set('attachment', new Blob([bytes], { type: contentType }), filename);
+      const res = await fetch(url('/api/v1/message/attachment'), { method: 'POST', body: form, signal: AbortSignal.timeout(60_000) });
+      const json = (await res.json().catch(() => ({}))) as { status?: number; message?: string };
+      if (!res.ok || (json.status && json.status >= 400)) throw new Error(`BlueBubbles attachment failed: ${res.status} ${json.message ?? ''}`);
+    },
     listWebhooks: () => call<Array<{ id: number; url: string; events: string[] }>>('GET', '/api/v1/webhook'),
     addWebhook: (webhookUrl: string, events: string[]) => call('POST', '/api/v1/webhook', { url: webhookUrl, events }),
     deleteWebhook: (id: number) => call('DELETE', `/api/v1/webhook/${id}`),

@@ -1,5 +1,5 @@
 import { MongoClient, type Db } from 'mongodb';
-import type { AttendanceRecord, Assignment, Settings, Shift, Volunteer } from '@app/core';
+import type { AttendanceRecord, Assignment, FormValues, Settings, Shift, Volunteer } from '@app/core';
 
 let client: MongoClient | undefined;
 
@@ -18,6 +18,17 @@ export interface ConversationDoc {
   activeFormSubmissionId?: unknown;
 }
 
+export interface FormSubmission {
+  templateId: string;
+  coordinator: string;
+  volunteerId?: unknown;
+  values: FormValues;
+  status: 'in_progress' | 'complete' | 'cancelled';
+  pdfKey?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export const collections = (db: Db) => ({
   volunteers: db.collection<Volunteer>('volunteers'),
   shifts: db.collection<Shift>('shifts'),
@@ -25,5 +36,6 @@ export const collections = (db: Db) => ({
   attendance: db.collection<AttendanceRecord>('attendance'),
   conversations: db.collection<ConversationDoc>('conversations'),
   settings: db.collection<Settings>('settings'),
+  formSubmissions: db.collection<FormSubmission>('formSubmissions'),
 });
 export type Collections = ReturnType<typeof collections>;

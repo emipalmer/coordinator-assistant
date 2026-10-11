@@ -7,8 +7,10 @@
     "@anthropic-ai/sdk": "^0.133.0",
     "@app/core": "*",
     "@aws-sdk/client-bedrock-runtime": "^3.1149.0",
+    "@aws-sdk/client-s3": "^3.1149.0",
     "@aws-sdk/client-sqs": "^3.1149.0",
     "@aws-sdk/client-ssm": "^3.1149.0",
+    "@aws-sdk/s3-request-presigner": "^3.1149.0",
     "mongodb": "^7.7.0",
     "zod": "^4.1.0"
   },

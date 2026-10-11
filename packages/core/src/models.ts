@@ -75,6 +75,7 @@ export interface Settings {
   orgName: string;
   timezone: string;
   hourlyValueUsd: number;
+  coordinatorName?: string;
 }
 
 /** New volunteers start with everything missing; guardian consent only applies to minors. */

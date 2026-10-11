@@ -12,6 +12,8 @@ import { SqsSendMessage } from 'aws-cdk-lib/aws-scheduler-targets';
 import { TimeZone } from 'aws-cdk-lib';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
+import { RemovalPolicy } from 'aws-cdk-lib';
 import { fileURLToPath } from 'node:url';
 
 const lambdaSrc = (file: string) => fileURLToPath(new URL(`../../services/lambda/src/handlers/${file}`, import.meta.url));
@@ -58,7 +60,19 @@ export class CoordinatorStack extends Stack {
     inbound.grantSendMessages(ingress);
     bridgeSecret.grantRead(ingress);
 
+    // Generated PDFs, .ics files and received form photos. Private; the bridge only gets 1-hour presigned links.
+    const files = new Bucket(this, 'Files', {
+      blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
+      encryption: BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
+      // Hackathon stack: synthetic data only, so tearing down should leave nothing behind.
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
     const agent = fn('Agent', 'agent.ts', 120);
+    agent.addEnvironment('FILES_BUCKET', files.bucketName);
+    files.grantReadWrite(agent);
     agent.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);
     agent.addEnvironment('LLM_PROVIDER', props.llmProvider);
     for (const name of SECRET_PARAMS) {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Logger } from '@app/core';
 import type { Collections } from '../db.js';
 import type { ToolDef, ToolOutcome } from '../llm.js';
+import type { StoredFile } from '../files.js';
 
 export interface ToolContext {
   c: Collections;
@@ -9,6 +10,8 @@ export interface ToolContext {
   now: Date;
   timezone: string;
   coordinator: string;
+  /** Files queued here are sent as attachments after the text reply. */
+  attachments: StoredFile[];
 }
 
 export interface Tool<S extends z.ZodType = z.ZodType> {

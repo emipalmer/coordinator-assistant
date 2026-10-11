@@ -34,8 +34,13 @@ export function startOutboundPoller(cfg: Config, bb: BlueBubbles, log: Logger) {
     // Second line of defense: even a buggy agent can't text anyone but a coordinator.
     if (!isAllowlisted(msg.to, cfg.allowlist)) return log.error('outbound to non-allowlisted number blocked');
     if (msg.text) await bb.sendText(directChatGuid(msg.to), msg.text);
-    if (msg.attachment) log.warn('attachments not supported yet (M4)');
-    log.info('outbound sent', { len: msg.text?.length ?? 0 });
+    if (msg.attachment) {
+      const res = await fetch(msg.attachment.url, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) throw new Error(`attachment download failed: ${res.status}`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      await bb.sendAttachment(directChatGuid(msg.to), msg.attachment.filename, bytes, res.headers.get('content-type') ?? 'application/octet-stream');
+    }
+    log.info('outbound sent', { len: msg.text?.length ?? 0, attachment: msg.attachment?.filename });
   }
 
   void loop();

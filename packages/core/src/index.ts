@@ -8,3 +8,4 @@ export * from './dates.js';
 export * from './reply.js';
 export * from './events.js';
 export * from './retention.js';
+export * from './forms/index.js';

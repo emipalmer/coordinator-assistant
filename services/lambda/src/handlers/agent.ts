@@ -8,6 +8,8 @@ import { ALL_TOOLS } from '../tools/index.js';
 import { createExecutor, toToolDefs } from '../tools/registry.js';
 import { describeCancellation } from '../tools/proactive.js';
 import type { ToolLoop } from '../llm.js';
+import type { StoredFile } from '../files.js';
+import { FORM_TEMPLATES, missingFields } from '@app/core';
 
 const baseLog = createLogger({ svc: 'agent' });
 const HISTORY_TURNS = 12;
@@ -15,7 +17,8 @@ const toolDefs = toToolDefs(ALL_TOOLS);
 const coordinators = [...parseAllowlist(process.env.COORDINATOR_ALLOWLIST)];
 let loop: ToolLoop | undefined;
 
-export const DEFAULT_SETTINGS: Settings = { _id: 'org', orgName: 'Maple Street Community Pantry', timezone: 'America/New_York', hourlyValueUsd: 34.79 };
+// Independent Sector national value of a volunteer hour (announced Apr 2026); coordinators can change it by text.
+export const DEFAULT_SETTINGS: Settings = { _id: 'org', orgName: 'Maple Street Community Pantry', timezone: 'America/New_York', hourlyValueUsd: 36.14 };
 
 export async function handler(event: SQSEvent) {
   for (const record of event.Records) {
@@ -65,7 +68,9 @@ async function getCollections() {
   return collections(await getDb(await mongoUri()));
 }
 
-const toolCtx = (c: Collections, log: Logger, coordinator: string, timezone = DEFAULT_SETTINGS.timezone) => ({ c, log, now: new Date(), timezone, coordinator });
+const toolCtx = (c: Collections, log: Logger, coordinator: string, timezone = DEFAULT_SETTINGS.timezone) => ({
+  c, log, now: new Date(), timezone, coordinator, attachments: [] as StoredFile[],
+});
 
 async function runTurn(from: string, userText: string, log: Logger) {
   const c = await getCollections();
@@ -77,8 +82,9 @@ async function runTurn(from: string, userText: string, log: Logger) {
   // History must start with a user turn.
   while (history[0]?.role === 'assistant') history.shift();
 
-  const execute = createExecutor(ALL_TOOLS, toolCtx(c, log, from, settings.timezone));
-  const reply = await loop({ system: systemPrompt(settings, now), history, user: userText, tools: toolDefs, execute, log });
+  const ctx = toolCtx(c, log, from, settings.timezone);
+  const execute = createExecutor(ALL_TOOLS, ctx);
+  const reply = await loop({ system: systemPrompt(settings, now), history, user: (await formContext(c, convo?.activeFormSubmissionId)) + userText, tools: toolDefs, execute, log });
 
   await c.conversations.updateOne(
     { _id: from },
@@ -86,6 +92,20 @@ async function runTurn(from: string, userText: string, log: Logger) {
     { upsert: true },
   );
   const bubbles = splitReply(reply);
-  await sendToCoordinator(outboundQueueUrl(), bubbles.map((text) => ({ to: from, text })));
-  log.info('replied', { bubbles: bubbles.length });
+  await sendToCoordinator(outboundQueueUrl(), [
+    ...bubbles.map((text) => ({ to: from, text })),
+    ...ctx.attachments.map((f) => ({ to: from, attachment: { url: f.url, filename: f.filename } })),
+  ]);
+  log.info('replied', { bubbles: bubbles.length, attachments: ctx.attachments.length });
+}
+
+// Short note in the user turn (not the system prompt, to keep that cacheable) so answers like
+// "around 10am, no witnesses" are routed to the form in progress.
+async function formContext(c: Collections, id: unknown): Promise<string> {
+  if (!id) return '';
+  const sub = await c.formSubmissions.findOne({ _id: id as never, status: 'in_progress' });
+  const t = sub && FORM_TEMPLATES[sub.templateId];
+  if (!sub || !t) return '';
+  const missing = missingFields(t, sub.values).map((f) => f.key);
+  return `[Context: a ${t.title} is in progress (id ${String(sub._id)}); still needed: ${missing.join(', ') || 'nothing, ready to finish'}. Use update_form for answers.]\n`;
 }
