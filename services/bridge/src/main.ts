@@ -4,12 +4,14 @@ import { loadConfig } from './config.js';
 import { createBlueBubbles } from './bluebubbles.js';
 import { parseWebhook } from './webhook.js';
 import { startOutboundPoller } from './outbound.js';
+import { watchCancellations } from './changes.js';
 
 const log = createLogger({ svc: 'bridge' });
 const cfg = loadConfig();
 const bb = createBlueBubbles(cfg.BLUEBUBBLES_URL, cfg.BLUEBUBBLES_PASSWORD);
 const webhookPath = '/bluebubbles';
-const webhookUrl = `http://localhost:${cfg.BRIDGE_PORT}${webhookPath}`;
+// Explicit IPv4: BlueBubbles may resolve `localhost` to ::1, which the loopback-only listener doesn't accept.
+const webhookUrl = `http://127.0.0.1:${cfg.BRIDGE_PORT}${webhookPath}`;
 
 // BlueBubbles can re-deliver; remember recent guids so the agent never sees a message twice.
 const seen = new Set<string>();
@@ -26,9 +28,13 @@ async function forward(msg: InboundMessage) {
     await bb.sendText(msg.chatGuid, `echo (local): ${msg.text}`);
     return;
   }
-  const body = JSON.stringify(msg);
+  await postSigned(cfg.INGRESS_URL, msg);
+}
+
+async function postSigned(url: string, payload: unknown) {
+  const body = JSON.stringify(payload);
   const ts = String(Date.now());
-  const res = await fetch(cfg.INGRESS_URL, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json', [TIMESTAMP_HEADER]: ts, [SIGNATURE_HEADER]: sign(cfg.BRIDGE_SHARED_SECRET, ts, body) },
     body,
@@ -65,6 +71,9 @@ const server = createServer((req, res) => {
 
 async function ensureWebhook() {
   const hooks = await bb.listWebhooks();
+  for (const h of hooks) {
+    if (h.url !== webhookUrl && h.url.endsWith(webhookPath)) await bb.deleteWebhook(h.id);
+  }
   if (hooks.some((h) => h.url === webhookUrl)) return;
   await bb.addWebhook(webhookUrl, ['new-message']);
   log.info('registered BlueBubbles webhook', { webhookUrl });
@@ -75,5 +84,9 @@ server.listen(cfg.BRIDGE_PORT, '127.0.0.1', async () => {
   log.info('bridge listening', { port: cfg.BRIDGE_PORT, mode: cfg.INGRESS_URL ? 'aws' : 'local-echo' });
   await ensureWebhook().catch((err) => log.error('webhook registration failed', { err }));
   if (cfg.OUTBOUND_QUEUE_URL) startOutboundPoller(cfg, bb, log);
+  if (cfg.MONGODB_URI && cfg.INGRESS_URL) {
+    const eventsUrl = cfg.INGRESS_URL.replace(/\/inbound$/, '/events');
+    await watchCancellations(cfg.MONGODB_URI, (e) => postSigned(eventsUrl, e), log).catch((err) => log.error('change stream failed to start', { err }));
+  }
 });
 

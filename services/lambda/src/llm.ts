@@ -46,11 +46,20 @@ function bedrockLoop(modelId: string): ToolLoop {
       content: [{ text: t.text }],
     }));
     const toolConfig = {
-      tools: tools.map((t) => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema as never } } })),
+      tools: [
+        ...tools.map((t) => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema as never } } })),
+        { cachePoint: { type: 'default' as const } },
+      ],
     };
     for (let step = 0; step < MAX_STEPS; step++) {
       const res = await client.send(
-        new ConverseCommand({ modelId, system: [{ text: system }], messages, toolConfig, inferenceConfig: { maxTokens: 8000 } }),
+        new ConverseCommand({
+          modelId,
+          system: [{ text: system }, { cachePoint: { type: 'default' } }],
+          messages,
+          toolConfig,
+          inferenceConfig: { maxTokens: 8000 },
+        }),
       );
       const msg = res.output?.message;
       if (!msg) throw new Error('Converse returned no message');
@@ -92,6 +101,10 @@ function anthropicLoop(model: string, apiKey: string | undefined): ToolLoop {
         system,
         messages,
         tools: apiTools,
+        // A text thread doesn't need deep deliberation; medium keeps replies quick without hurting tool use.
+        output_config: { effort: (process.env.LLM_EFFORT as 'low' | 'medium' | 'high') ?? 'medium' },
+        // Tools + system prompt are identical across turns, so cache them.
+        cache_control: { type: 'ephemeral' },
         // Route policy declines to a fallback model instead of dead-ending the coordinator.
         betas: ['server-side-fallback-2026-07-01'],
         fallbacks: 'default',

@@ -11,6 +11,8 @@ const Env = z.object({
   OUTBOUND_QUEUE_URL: z.string().url().or(z.literal('')).default(''),
   BRIDGE_SHARED_SECRET: z.string().min(32),
   AWS_REGION: z.string().default('us-east-1'),
+  // Optional: enables the change-stream watcher for backfill alerts.
+  MONGODB_URI: z.string().optional(),
 });
 
 export function loadConfig() {

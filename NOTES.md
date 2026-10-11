@@ -9,6 +9,10 @@ iMessage assistant for volunteer coordinators. Built at c0mpiled-15 (Penn State)
 - **BlueBubbles without Private API** (no SIP changes). Sends use `method: "apple-script"`. Bridge binds to 127.0.0.1 only.
 - **Change streams run in the bridge** (always-on process), not Lambda, which can't hold a stream open.
 - **Embeddings:** Titan Text Embeddings V2 on Bedrock.
+- **Proactive work reuses the conversation path.** The daily check (EventBridge Scheduler → inbound SQS FIFO directly, 8am ET) and cancellation alerts become synthetic turns in the coordinator's conversation, so the coordinator can reply to them naturally.
+- **Cancellations are a separate `assignments` collection** so the change stream matches one field flip (`status → cancelled`). The resume token lives in `streamState`, so a bridge restart replays missed cancellations.
+- **Backfill = vector search on the shift's needs + availability filter** (day and part of day in the org timezone), relaxing to day-only if fewer than 2 match.
+- **Model:** Claude Sonnet 5.5 at medium effort; system prompt and tools are prompt-cached (the system prompt carries the date, not the clock time, to keep the cache warm).
 - **Bridge AWS credentials** come from `aws login` on the Mac (short-lived, auto-rotating) via the SDK default chain.
 
 ## Setup (in order)
@@ -20,8 +24,14 @@ iMessage assistant for volunteer coordinators. Built at c0mpiled-15 (Penn State)
 6. `npx cdk bootstrap` (once), then `npm run deploy -w infra`; copy `IngressUrl` / `OutboundQueueUrl` from `cdk-outputs.json` into `.env`.
 7. `npm run bridge`.
 
+## Gotchas hit
+- BlueBubbles resolves `localhost` webhooks to IPv6; the bridge listens on 127.0.0.1 only, so the webhook must be registered as `http://127.0.0.1:...`.
+- Atlas connection string: replace `<db_password>` including the angle brackets.
+- Editors with `.env` open can overwrite lines written by scripts; close the tab after editing.
+
 ## Known gaps
-- New AWS account was in "being verified" state at 3:30pm; Bedrock calls were denied until it cleared.
+- New AWS account was in "being verified" state at 3:30pm. Titan embeddings worked by ~3:55pm, but Claude on Bedrock still needs the Anthropic use-case form, so the agent runs on the Anthropic API (`LLM_PROVIDER=anthropic`) until then. Same tool loop; switching is an env change + redeploy.
+- All events and messages share one FIFO group (the first coordinator). Fine for one coordinator; multiple coordinators would need per-coordinator event fan-out.
 - Deployed with root credentials via `aws login` (hackathon only). Lambdas use least-privilege roles.
 - Atlas network access is `0.0.0.0/0` because Lambda has no static IP. Production: VPC + NAT/PrivateLink.
 - Bridge dedup set is in memory; a restart could re-forward a message BlueBubbles re-delivers (SQS FIFO dedup covers 5 minutes).

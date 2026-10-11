@@ -34,6 +34,7 @@ export interface Volunteer {
   notesEmbedding?: number[];
   status: z.infer<typeof VolunteerStatus>;
   lastActiveAt?: Date;
+  lastCheckInDraftAt?: Date;
   compliance: Compliance;
   createdAt: Date;
   updatedAt: Date;

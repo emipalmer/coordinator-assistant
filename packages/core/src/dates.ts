@@ -37,7 +37,8 @@ export function formatLocal(at: Date, zone: string): string {
 /** Context line for the system prompt so the model can resolve "Saturday" or "tomorrow". */
 export function nowContext(now: Date, zone: string): string {
   const day = new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'long' }).format(now);
-  return `Today is ${day}, ${localDate(now, zone)}; local time ${formatLocal(now, zone)} (${zone}).`;
+  // Date only: a clock time would change every request and defeat prompt caching.
+  return `Today is ${day}, ${localDate(now, zone)} (${zone}).`;
 }
 
 /** Birthdays within the next `days` days (inclusive of today), soonest first. Feb 29 is celebrated Feb 28 in non-leap years. */

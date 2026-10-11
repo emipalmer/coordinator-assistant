@@ -24,6 +24,7 @@ export function createBlueBubbles(baseUrl: string, password: string) {
       call('POST', '/api/v1/message/text', { chatGuid, message, tempGuid: `temp-${randomUUID()}`, method: 'apple-script' }),
     listWebhooks: () => call<Array<{ id: number; url: string; events: string[] }>>('GET', '/api/v1/webhook'),
     addWebhook: (webhookUrl: string, events: string[]) => call('POST', '/api/v1/webhook', { url: webhookUrl, events }),
+    deleteWebhook: (id: number) => call('DELETE', `/api/v1/webhook/${id}`),
   };
 }
 export type BlueBubbles = ReturnType<typeof createBlueBubbles>;

@@ -1,6 +1,6 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { createLogger, InboundMessage, isAllowlisted, parseAllowlist, SIGNATURE_HEADER, TIMESTAMP_HEADER, verify } from '@app/core';
+import { AgentEvent, createLogger, InboundMessage, isAllowlisted, parseAllowlist, SIGNATURE_HEADER, TIMESTAMP_HEADER, verify } from '@app/core';
 import { getSecret } from '../secrets.js';
 import { requireEnv } from '../env.js';
 
@@ -17,12 +17,14 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     return { statusCode: 401 };
   }
 
-  let parsed;
+  let json: unknown;
   try {
-    parsed = InboundMessage.safeParse(JSON.parse(body));
+    json = JSON.parse(body);
   } catch {
     return { statusCode: 400 };
   }
+  if (event.rawPath.endsWith('/events')) return enqueueEvent(json);
+  const parsed = InboundMessage.safeParse(json);
   if (!parsed.success) return { statusCode: 400, body: 'invalid message' };
   const msg = parsed.data;
   if (!isAllowlisted(msg.from, allowlist)) {
@@ -40,5 +42,24 @@ export async function handler(event: APIGatewayProxyEventV2): Promise<APIGateway
     }),
   );
   log.info('enqueued', { messageId: msg.messageId });
+  return { statusCode: 202 };
+}
+
+// Database-change events from the bridge. They share the main coordinator's FIFO group so an
+// alert never runs concurrently with a coordinator turn and races the conversation history.
+async function enqueueEvent(json: unknown): Promise<APIGatewayProxyResultV2> {
+  const parsed = AgentEvent.safeParse(json);
+  if (!parsed.success) return { statusCode: 400, body: 'invalid event' };
+  const group = [...allowlist][0];
+  if (!group) return { statusCode: 500 };
+  await sqs.send(
+    new SendMessageCommand({
+      QueueUrl: requireEnv('INBOUND_QUEUE_URL'),
+      MessageBody: JSON.stringify(parsed.data),
+      MessageGroupId: group,
+      MessageDeduplicationId: parsed.data.eventId,
+    }),
+  );
+  log.info('event enqueued', { type: parsed.data.type, eventId: parsed.data.eventId });
   return { statusCode: 202 };
 }

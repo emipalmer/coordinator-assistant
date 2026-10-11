@@ -7,6 +7,9 @@ import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Queue } from 'aws-cdk-lib/aws-sqs';
+import { Schedule, ScheduleExpression, ScheduleTargetInput } from 'aws-cdk-lib/aws-scheduler';
+import { SqsSendMessage } from 'aws-cdk-lib/aws-scheduler-targets';
+import { TimeZone } from 'aws-cdk-lib';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +41,8 @@ export class CoordinatorStack extends Stack {
     const inboundDlq = new Queue(this, 'InboundDlq', { fifo: true, retentionPeriod: Duration.days(4) });
     const inbound = new Queue(this, 'Inbound', {
       fifo: true,
+      // Lets the scheduler enqueue without an explicit dedup id; ingress still sets its own.
+      contentBasedDeduplication: true,
       visibilityTimeout: Duration.seconds(6 * 120),
       deadLetterQueue: { queue: inboundDlq, maxReceiveCount: 2 },
     });
@@ -72,7 +77,19 @@ export class CoordinatorStack extends Stack {
     outbound.grantSendMessages(agent);
 
     const api = new HttpApi(this, 'Api');
-    api.addRoutes({ path: '/inbound', methods: [HttpMethod.POST], integration: new HttpLambdaIntegration('IngressInt', ingress) });
+    const ingressInt = new HttpLambdaIntegration('IngressInt', ingress);
+    api.addRoutes({ path: '/inbound', methods: [HttpMethod.POST], integration: ingressInt });
+    api.addRoutes({ path: '/events', methods: [HttpMethod.POST], integration: ingressInt });
+
+    // Morning check goes straight onto the inbound queue: no extra Lambda, same ordering guarantees.
+    const firstCoordinator = props.allowlist.split(',')[0]!.trim();
+    new Schedule(this, 'DailyCheck', {
+      schedule: ScheduleExpression.cron({ minute: '0', hour: '8', timeZone: TimeZone.AMERICA_NEW_YORK }),
+      target: new SqsSendMessage(inbound, {
+        messageGroupId: firstCoordinator,
+        input: ScheduleTargetInput.fromObject({ kind: 'event', type: 'daily_check', eventId: 'daily-<aws.scheduler.scheduled-time>' }),
+      }),
+    });
 
     new CfnOutput(this, 'IngressUrl', { value: `${api.apiEndpoint}/inbound` });
     new CfnOutput(this, 'OutboundQueueUrl', { value: outbound.queueUrl });
