@@ -35,6 +35,8 @@ export interface GoogleConnection {
   refreshTokenSealed: string; // AES-256-GCM, key in SSM; never stored in plaintext
   scopes: string[];
   connectedAt: Date;
+  /** The dedicated "Tari" calendar this app created in the coordinator's account. */
+  calendarId?: string;
 }
 
 export const collections = (db: Db) => ({

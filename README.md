@@ -17,7 +17,7 @@ It only ever talks to the coordinator. When a volunteer should hear something (a
 | *(photo of a signed form)* | Claude vision reads name + signed sections, marks paperwork received |
 | "Graph our hours by month" | Chart image rendered in AWS (no third-party chart service) |
 | "Send me the dashboard" | Private, expiring link to a live dashboard (design in progress) |
-| "Connect Google" | OAuth link by text; then shifts sync to Google Calendar, Tari checks busy/free before suggesting times, and writes emails into Gmail **Drafts** (never sends) |
+| "Connect Google" | OAuth link by text; then shifts sync to a separate "Tari" calendar in their account, Tari checks busy/free before suggesting times, and writes emails into Gmail **Drafts** (never sends) |
 | "Calendar invite for Saturday pantry" | `.ics` with a day-before reminder, plus a draft note to forward |
 | *(8am daily)* | Birthdays and volunteers we haven't seen in 45+ days, each with a drafted message |
 | *(a volunteer drops out)* | Change stream fires → ranked backfill candidates + drafted invite |
@@ -63,7 +63,7 @@ It only ever talks to the coordinator. When a volunteer should hear something (a
 - Names are resolved strictly: ambiguous names prompt a question, never a guess.
 - No SSNs or government IDs; W-4/I-9/background checks are out of scope.
 - Secrets live in SSM Parameter Store (SecureString) and a gitignored `.env`; generated files sit in a private S3 bucket.
-- Google access is least-privilege (calendar events, busy/free only, Gmail compose: drafts, never send). The refresh token is AES-256-GCM encrypted with a key in SSM, the OAuth state is signed, short-lived and bound to an allowlisted coordinator, and "disconnect Google" revokes access at Google.
+- Google access is least-privilege (`calendar.app.created`: Tari can only manage the calendar it created, never the coordinator's own; busy/free only; Gmail compose: drafts, never send). The refresh token is AES-256-GCM encrypted with a key in SSM, the OAuth state is signed, short-lived and bound to an allowlisted coordinator, and "disconnect Google" revokes access at Google.
 - Dashboard links are signed, expire in 7 days, carry no phone number, can be revoked by text ("revoke dashboard links"), and are served with no-store / no-referrer / CSP headers. The dashboard data has no contact details, notes, or incident details.
 - Drafts for one volunteer never include another volunteer's private details (health, contact, birthday, paperwork, why someone dropped out).
 - API Gateway is rate-limited; SQS queues are encrypted and SSL-only; logs record ids and sizes, never message text.

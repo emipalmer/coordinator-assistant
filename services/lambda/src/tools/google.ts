@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
 import { buildMime, formatLocal, localToUtc, toGmailRaw, type Shift } from '@app/core';
-import { authUrl, disconnect, getConnection, googleApi, GoogleNotConnected } from '../google.js';
+import { authUrl, CALENDAR_SCOPE, disconnect, getConnection, googleApi, GoogleNotConnected } from '../google.js';
 import { onboardingPacketFile, shiftIcsFile, type Artifact } from '../artifacts.js';
 import { defineTool, type ToolContext } from './registry.js';
 import { resolveVolunteer } from './volunteers.js';
@@ -23,7 +23,7 @@ async function withGoogle<T>(fn: () => Promise<T>) {
 export const connectGoogle = defineTool({
   name: 'connect_google',
   description:
-    'Give the coordinator a link to connect their Google account, so Tari can put shifts on their Google Calendar, check when they are busy (busy/free only), and write emails into their Gmail Drafts (Tari never sends email). The link works for 15 minutes.',
+    'Give the coordinator a link to connect their Google account, so Tari can keep shifts on a separate "Tari" calendar in their account (it cannot touch their own calendars), check when they are busy (busy/free only), and write emails into their Gmail Drafts (Tari never sends email). The link works for 15 minutes.',
   input: z.object({}),
   async run(ctx) {
     const existing = await getConnection(ctx.c, ctx.coordinator);
@@ -85,44 +85,98 @@ function eventBody(s: Shift, timezone: string, shiftId: string) {
 }
 
 /**
+ * The dedicated calendar Tari writes shifts to, created on first use. If the coordinator deleted it,
+ * a fresh one is made and stale event ids are dropped.
+ */
+async function tariCalendarId(ctx: ToolContext): Promise<string> {
+  const conn = await getConnection(ctx.c, ctx.coordinator);
+  if (!conn) throw new GoogleNotConnected();
+  if (!conn.scopes.includes(CALENDAR_SCOPE)) throw new GoogleNotConnected('needs_reconnect');
+  if (conn.calendarId) {
+    try {
+      await googleApi(ctx.c, ctx.coordinator, 'GET', `${CAL}/calendars/${encodeURIComponent(conn.calendarId)}`);
+      return conn.calendarId;
+    } catch (err) {
+      if (!/Google API (404|410)/.test(String(err))) throw err;
+      await ctx.c.shifts.updateMany({}, { $unset: { [`googleEvents.${ctx.coordinator}`]: '' } });
+    }
+  }
+  const org = (await ctx.c.settings.findOne({ _id: 'org' }))?.orgName ?? 'Volunteer';
+  const cal = await googleApi<{ id: string }>(ctx.c, ctx.coordinator, 'POST', `${CAL}/calendars`, {
+    summary: `Tari: ${org} shifts`,
+    description: 'Volunteer shifts managed by Tari. Edit shifts by texting Tari so everything stays in sync.',
+    timeZone: ctx.timezone,
+  });
+  await ctx.c.googleConnections.updateOne({ _id: ctx.coordinator }, { $set: { calendarId: cal.id } });
+  return cal.id;
+}
+
+const eventsUrl = (calendarId: string, eventId?: string) => `${CAL}/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ''}`;
+
+/**
  * Create or update the coordinator's calendar event for a shift. Best-effort: calendar sync never
  * blocks recording the shift itself. Returns a short status the agent can mention.
  */
 export async function syncShiftToCalendar(ctx: ToolContext, s: Shift & { _id: ObjectId }): Promise<string | null> {
   if (!(await getConnection(ctx.c, ctx.coordinator))) return null;
   const shiftId = String(s._id);
-  const existing = s.googleEvents?.[ctx.coordinator];
   try {
+    const calendarId = await tariCalendarId(ctx);
+    // Re-read: tariCalendarId may have cleared stale ids if the calendar was recreated.
+    const existing = (await ctx.c.shifts.findOne({ _id: s._id }))?.googleEvents?.[ctx.coordinator];
     if (s.status === 'cancelled') {
-      if (existing) await googleApi(ctx.c, ctx.coordinator, 'DELETE', `${CAL}/calendars/primary/events/${encodeURIComponent(existing)}`);
+      if (existing) await googleApi(ctx.c, ctx.coordinator, 'DELETE', eventsUrl(calendarId, existing)).catch(() => {});
       await ctx.c.shifts.updateOne({ _id: s._id }, { $unset: { [`googleEvents.${ctx.coordinator}`]: '' } });
-      return existing ? 'removed from Google Calendar' : null;
+      return existing ? 'removed from the Tari calendar' : null;
     }
     if (existing) {
-      await googleApi(ctx.c, ctx.coordinator, 'PATCH', `${CAL}/calendars/primary/events/${encodeURIComponent(existing)}`, eventBody(s, ctx.timezone, shiftId));
-      return 'updated on Google Calendar';
+      try {
+        await googleApi(ctx.c, ctx.coordinator, 'PATCH', eventsUrl(calendarId, existing), eventBody(s, ctx.timezone, shiftId));
+        return 'updated on the Tari calendar';
+      } catch (err) {
+        if (!/Google API (404|410)/.test(String(err))) throw err; // event deleted by hand: recreate below
+      }
     }
-    const ev = await googleApi<{ id: string }>(ctx.c, ctx.coordinator, 'POST', `${CAL}/calendars/primary/events`, eventBody(s, ctx.timezone, shiftId));
+    const ev = await googleApi<{ id: string }>(ctx.c, ctx.coordinator, 'POST', eventsUrl(calendarId), eventBody(s, ctx.timezone, shiftId));
     await ctx.c.shifts.updateOne({ _id: s._id }, { $set: { [`googleEvents.${ctx.coordinator}`]: ev.id } });
-    return 'added to Google Calendar';
+    return 'added to the Tari calendar';
   } catch (err) {
     ctx.log.warn('calendar sync failed', { err: (err as Error).message });
-    return err instanceof GoogleNotConnected ? 'not synced: Google needs reconnecting' : 'not synced to Google Calendar (will retry next change)';
+    return err instanceof GoogleNotConnected ? 'not synced: Google needs reconnecting (connect_google)' : 'not synced to Google Calendar (will retry next change)';
   }
 }
 
 export const syncShiftsToCalendar = defineTool({
   name: 'sync_shifts_to_calendar',
-  description: 'Put upcoming shifts (default: next 30 days) on the coordinator\'s Google Calendar. Safe to repeat; existing events are updated, not duplicated.',
+  description: "Put upcoming shifts (default: next 30 days) on the dedicated Tari calendar in the coordinator's Google account (never their main calendar). Safe to repeat: events are updated, not duplicated, and events for deleted shifts are removed.",
   input: z.object({ days: z.number().int().min(1).max(90).default(30) }),
   async run(ctx, input) {
     if (!(await getConnection(ctx.c, ctx.coordinator))) return { ok: false, content: 'Google is not connected; use connect_google.' };
     const shifts = (await ctx.c.shifts.find({ start: { $gte: ctx.now, $lt: new Date(ctx.now.getTime() + input.days * 86_400_000) } }).sort({ start: 1 }).toArray()) as Array<Shift & { _id: ObjectId }>;
     const results = [];
     for (const s of shifts) results.push({ shift: `${s.title}, ${formatLocal(s.start, ctx.timezone)}`, result: await syncShiftToCalendar(ctx, s) });
-    return { ok: true, content: JSON.stringify({ synced: results }) };
+    const removed = await removeOrphanedEvents(ctx).catch(() => 0);
+    return { ok: true, content: JSON.stringify({ synced: results, ...(removed && { removedStaleEvents: removed }) }) };
   },
 });
+
+/** Events on the Tari calendar whose shift no longer exists or was cancelled (only Tari's own calendar is touched). */
+async function removeOrphanedEvents(ctx: ToolContext): Promise<number> {
+  const calendarId = await tariCalendarId(ctx);
+  const res = await googleApi<{ items?: Array<{ id: string; extendedProperties?: { private?: { tariShiftId?: string } } }> }>(
+    ctx.c, ctx.coordinator, 'GET', `${eventsUrl(calendarId)}?maxResults=250&timeMin=${encodeURIComponent(new Date(ctx.now.getTime() - 86_400_000).toISOString())}`,
+  );
+  let removed = 0;
+  for (const ev of res.items ?? []) {
+    const shiftId = ev.extendedProperties?.private?.tariShiftId;
+    const live = shiftId && /^[a-f0-9]{24}$/.test(shiftId) && (await ctx.c.shifts.findOne({ _id: new ObjectId(shiftId), status: 'scheduled' }));
+    if (!live) {
+      await googleApi(ctx.c, ctx.coordinator, 'DELETE', eventsUrl(calendarId, ev.id)).catch(() => {});
+      removed++;
+    }
+  }
+  return removed;
+}
 
 export const draftEmail = defineTool({
   name: 'draft_email',

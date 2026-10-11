@@ -4,11 +4,13 @@ import { getSecret } from './secrets.js';
 import { requireEnv } from './env.js';
 import type { Collections } from './db.js';
 
-// Least privilege: identify the account, write shift events, read busy/free only, write drafts (never send).
+// Least privilege: identify the account, manage ONLY calendars Tari itself created (shifts live on a
+// dedicated "Tari" calendar, never the coordinator's own), read busy/free only, write drafts (never send).
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
 export const GOOGLE_SCOPES = [
   'openid',
   'email',
-  'https://www.googleapis.com/auth/calendar.events',
+  CALENDAR_SCOPE,
   'https://www.googleapis.com/auth/calendar.freebusy',
   'https://www.googleapis.com/auth/gmail.compose',
 ];
@@ -61,12 +63,15 @@ export async function completeConnection(c: Collections, coordinator: string, co
   if (!res.ok || !tok.refresh_token) throw new Error(`token exchange failed: ${tok.error ?? res.status}`);
   // id_token comes straight from Google's token endpoint over TLS, so decoding (not verifying) is sufficient here.
   const email = tok.id_token ? (JSON.parse(Buffer.from(tok.id_token.split('.')[1]!, 'base64url').toString()) as { email?: string }).email : undefined;
+  const previous = await connections(c).findOne({ _id: coordinator });
   const conn: GoogleConnection = {
     _id: coordinator,
     email: email ?? 'your Google account',
     refreshTokenSealed: encryptSecret(await tokenKey(), tok.refresh_token),
     scopes: (tok.scope ?? '').split(' ').filter(Boolean),
     connectedAt: new Date(),
+    // Keep the existing Tari calendar across reconnects so events aren't duplicated.
+    ...(previous?.calendarId && { calendarId: previous.calendarId }),
   };
   await connections(c).replaceOne({ _id: coordinator }, conn, { upsert: true });
   accessCache.delete(coordinator);
@@ -111,7 +116,11 @@ async function accessToken(c: Collections, coordinator: string): Promise<string>
 
 export class GoogleNotConnected extends Error {
   constructor(reason?: string) {
-    super(reason === 'invalid_grant' ? 'Google access expired or was revoked; reconnect with connect_google.' : 'Google is not connected; use connect_google.');
+    super(
+      reason === 'invalid_grant' ? 'Google access expired or was revoked; reconnect with connect_google.'
+        : reason === 'needs_reconnect' ? 'Tari now uses its own separate calendar, which needs a one-time reconnect; send a connect_google link.'
+          : 'Google is not connected; use connect_google.',
+    );
   }
 }
 
