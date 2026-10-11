@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
-import { formatLocal, localDate, localToUtc, type Shift } from '@app/core';
+import { buildIcs, formatLocal, localDate, localToUtc, type Shift } from '@app/core';
+import { storeFile } from '../files.js';
 import { defineTool, type ToolContext } from './registry.js';
 import { resolveVolunteer } from './volunteers.js';
 
@@ -145,5 +146,28 @@ export const logAttendance = defineTool({
     }
     const total = logged.reduce((s, l) => s + l.hours, 0);
     return { ok: problems.length === 0, content: JSON.stringify({ logged, totalHours: total, problems }) };
+  },
+});
+
+export const shiftCalendarFile = defineTool({
+  name: 'shift_calendar_file',
+  description: 'Make an .ics calendar invite for a shift (with a day-before reminder) that the coordinator can forward to volunteers. Get the shift id from list_shifts.',
+  input: z.object({ shiftId: Id }),
+  async run(ctx, input) {
+    const s = (await ctx.c.shifts.findOne({ _id: new ObjectId(input.shiftId) })) as (Shift & { _id: ObjectId }) | null;
+    if (!s) return { ok: false, content: 'No shift with that id.' };
+    const settings = await ctx.c.settings.findOne({ _id: 'org' });
+    const ics = buildIcs({
+      uid: `shift-${input.shiftId}@coordinator-assistant`,
+      start: s.start,
+      end: s.end,
+      title: `${s.title}${settings ? ` - ${settings.orgName}` : ''}`,
+      location: s.location,
+      description: s.description,
+      stamp: ctx.now,
+    });
+    const slug = `${s.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${localDate(s.start, ctx.timezone)}`;
+    ctx.attachments.push(await storeFile('calendar', `${slug}.ics`, new TextEncoder().encode(ics), 'text/calendar'));
+    return { ok: true, content: JSON.stringify({ shift: await shiftView(ctx, s), note: 'The .ics file follows your reply. Offer a short [[draft]] to send with it.' }) };
   },
 });

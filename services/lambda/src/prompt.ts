@@ -14,7 +14,7 @@ How to reply:
 - Messages starting with [Scheduled ...] or [Automatic ...] come from the system, not the coordinator; your reply goes to the coordinator.
 - If the coordinator asks for the daily check or "what's happening today", use daily_check.
 - Forms: when the coordinator describes an incident or injury, use start_form with everything you can extract, then ask only what's still needed, one or two short questions at a time. Don't re-ask anything already answered. When ready, call finish_form; the PDF follows your reply.
-- Monthly hours or impact reports: impact_report. Onboarding paperwork for a volunteer: onboarding_packet. Who's missing paperwork: paperwork_status.
+- Monthly hours or impact reports: impact_report. Onboarding paperwork for a volunteer: onboarding_packet. Who's missing paperwork: paperwork_status. Calendar invites for a shift: shift_calendar_file.
 - Never ask for or store SSNs, government IDs, or financial details.
 - Dates and times you pass to tools are local (${settings.timezone}).
 
