@@ -1,0 +1,1056 @@
+/* ============================================================
+   Coordinator Console — design tokens and layout
+   Palette mirrors the "Pantry UI" variable collection in Figma:
+   deep green structure, warm tan canvas, terracotta for anything
+   that needs a decision.
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --canvas-tan: #e8dfce;
+  --surface-app: #f6f1e7;
+  --surface-card: #fffdf8;
+  --surface-sunken: #efe7d8;
+
+  /* Sidebar */
+  --sidebar-bg: #1f4034;
+  --sidebar-ink: #c8dbcf;
+  --sidebar-ink-strong: #ffffff;
+  --sidebar-active: #2e5b4a;
+
+  /* Ink */
+  --ink: #27342c;
+  --ink-2: #5b6b61;
+  --ink-3: #8a9790;
+  --ink-on-green: #ffffff;
+
+  /* Rules */
+  --rule: #eae1d2;
+  --rule-strong: #dcd0bb;
+
+  /* Accents. Orange fills use --orange; orange TEXT uses --orange-ink,
+     which clears 4.5:1 on cream where the lighter tone would not. */
+  --green: #2e7a5e;
+  --green-deep: #1f4034;
+  --green-dim: #e6efe9;
+  --orange: #d97757;
+  --orange-ink: #b35430;
+  --orange-dim: #faede6;
+  --tan-chip: #efe4d2;
+
+  /* Shape */
+  --r-card: 16px;
+  --r-tile: 14px;
+  --r-row: 12px;
+  --r-sm: 10px;
+  --r-pill: 999px;
+
+  --shadow-app: 0 6px 24px rgba(38, 31, 15, 0.1);
+
+  /* Type */
+  --font: 'Archivo', ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--canvas-tan);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* Visible keyboard focus everywhere, never removed. */
+:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ============================ App shell ============================ */
+
+.shell {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app-window {
+  display: grid;
+  grid-template-columns: 238px minmax(0, 1fr);
+  background: var(--surface-app);
+  border-radius: 18px;
+  box-shadow: var(--shadow-app);
+  overflow: hidden;
+}
+
+/* ---------- Sidebar ---------- */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 16px;
+  background: var(--sidebar-bg);
+  color: var(--sidebar-ink);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 26px;
+}
+
+.brand-mark {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--orange);
+  color: var(--ink-on-green);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.brand-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--sidebar-ink-strong);
+  line-height: 1.25;
+}
+
+.brand-sub {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--r-sm);
+  color: var(--sidebar-ink);
+  font-size: 14px;
+  text-align: left;
+  transition: background 0.14s ease;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.nav-item[aria-current='page'] {
+  background: var(--sidebar-active);
+  color: var(--sidebar-ink-strong);
+  font-weight: 600;
+}
+
+.nav-item .label {
+  flex: 1;
+}
+
+.nav-badge {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--orange);
+  color: var(--ink-on-green);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sidebar-spacer {
+  flex: 1;
+  min-height: 24px;
+}
+
+.assistant-card {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--sidebar-active);
+}
+
+.assistant-card .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sidebar-ink-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.assistant-card .live {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7fd4a8;
+}
+
+.assistant-card p {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ---------- Main column ---------- */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  padding: 20px 26px 28px;
+}
+
+/* ---------- Top bar ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.topbar h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.topbar .today-sub {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.topbar .grow {
+  flex: 1;
+  min-width: 12px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 236px;
+  padding: 9px 13px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--surface-card);
+  color: var(--ink-3);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ink);
+}
+
+.search input::placeholder {
+  color: var(--ink-3);
+}
+
+.search input:focus {
+  outline: none;
+}
+
+.btn-primary {
+  padding: 9px 16px;
+  border-radius: var(--r-pill);
+  background: var(--orange);
+  color: var(--ink-on-green);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.14s ease;
+}
+
+.btn-primary:hover {
+  background: #c9663f;
+}
+
+.avatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--green-dim);
+  color: var(--green);
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* ============================ Shared pieces ============================ */
+
+.card {
+  padding: 20px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  background: var(--surface-card);
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.section-head h2 {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.section-head .meta {
+  color: var(--ink-3);
+  font-size: 12.5px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: var(--r-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.pill.green { background: var(--green-dim); color: var(--green); }
+.pill.orange { background: var(--orange-dim); color: var(--orange-ink); }
+.pill.tan { background: var(--tan-chip); color: var(--ink-2); }
+.pill.solid { background: var(--orange); color: var(--ink-on-green); }
+
+/* ============================ Hero ============================ */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 394px;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ---------- Next shift ---------- */
+
+.shift-card .head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shift-card .head .when {
+  margin-left: auto;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.shift-card h2 {
+  margin-top: 12px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.shift-card .where {
+  margin-top: 3px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.capacity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 18px 0 16px;
+}
+
+.capacity .count {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.capacity .count strong {
+  font-weight: 700;
+  color: var(--orange-ink);
+}
+
+.capacity .count strong.full {
+  color: var(--green);
+}
+
+.slots {
+  display: flex;
+  gap: 5px;
+}
+
+.slot {
+  width: 38px;
+  height: 9px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+}
+
+.slot.filled {
+  background: var(--green);
+}
+
+.crew {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crew-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: var(--r-row);
+  background: var(--green-dim);
+}
+
+.crew-row.open {
+  background: var(--surface-app);
+  border: 1px solid var(--rule-strong);
+}
+
+.crew-row .pip {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.crew-row.open .pip {
+  background: transparent;
+  border: 1.6px solid var(--orange);
+}
+
+.crew-row .body {
+  flex: 1;
+  min-width: 0;
+}
+
+.crew-row .who {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.crew-row.open .who {
+  color: var(--orange-ink);
+}
+
+.crew-row .hint {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+/* ---------- Needs you ---------- */
+
+.triage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.triage-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tally {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.tally.urgent { background: var(--orange-dim); color: var(--orange-ink); }
+.tally.warn { background: var(--tan-chip); color: var(--ink-2); }
+.tally.calm { background: var(--green-dim); color: var(--green); }
+
+.triage-item .what {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.triage-item .who {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+/* ============================ Stat tiles ============================ */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) 394px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.tile {
+  padding: 18px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-tile);
+  background: var(--surface-card);
+}
+
+.tile .value {
+  margin-top: 12px;
+  font-size: 29px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.tile .label {
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+/* ---------- Hours chart ----------
+   One series, so no legend: the heading names it. Bars carry a hover
+   tooltip and the same numbers are in the roster table below. */
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chart-head .title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.chart-head .sub {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 56px;
+  margin-top: 10px;
+}
+
+.bar-col {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.bar {
+  width: 100%;
+  min-height: 3px;
+  border-radius: 4px 4px 0 0;
+  background: var(--green);
+  transition: background 0.12s ease;
+}
+
+.bar.low {
+  background: var(--orange);
+}
+
+.bar-col:hover .bar,
+.bar-col:focus-visible .bar {
+  filter: brightness(0.88);
+}
+
+.bar-tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+  z-index: 5;
+}
+
+.bar-col:hover .bar-tip,
+.bar-col:focus-visible .bar-tip {
+  opacity: 1;
+}
+
+.x-axis {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.x-axis span {
+  flex: 1;
+  color: var(--ink-3);
+  font-size: 10.5px;
+  text-align: center;
+}
+
+/* ============================ Two columns ============================ */
+
+.columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 394px;
+  gap: 20px;
+  align-items: start;
+}
+
+.stack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- Shift rows ---------- */
+
+.shift-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 11px 14px 11px 12px;
+  border-radius: var(--r-row);
+  background: var(--surface-app);
+}
+
+.date-block {
+  flex: none;
+  width: 46px;
+  padding: 6px 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  background: var(--surface-card);
+  text-align: center;
+}
+
+.date-block .dow {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+
+.date-block .dd {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.shift-row .body {
+  flex: 1;
+  min-width: 0;
+}
+
+.shift-row .name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.shift-row .meta {
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.3;
+}
+
+.meter {
+  flex: none;
+  width: 96px;
+}
+
+.meter .num {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  color: var(--green);
+}
+
+.meter .num.short {
+  color: var(--orange-ink);
+}
+
+.meter .track {
+  margin-top: 5px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.meter .fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--green);
+}
+
+.meter .fill.short {
+  background: var(--orange);
+}
+
+/* ---------- Paperwork ---------- */
+
+.pw-row {
+  padding: 12px 13px;
+  border-radius: var(--r-row);
+  background: var(--surface-app);
+}
+
+.pw-row .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pw-row .name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.pw-row .ratio {
+  margin-left: auto;
+  color: var(--orange-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pw-row .need {
+  margin-top: 9px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+
+.dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
+}
+
+.dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.dot.got { background: var(--green); }
+.dot.miss { background: transparent; border: 1.6px solid var(--orange); }
+.dot.na { background: var(--rule-strong); }
+
+.dots .legend {
+  margin-left: 4px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+}
+
+.panel-foot {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* ============================ Roster ============================ */
+
+.roster {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  background: var(--surface-card);
+  overflow: hidden;
+}
+
+.roster-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 18px 20px 14px;
+}
+
+.roster-head h2 {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+thead th {
+  padding: 10px 20px;
+  background: var(--surface-app);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+thead th.num,
+tbody td.num {
+  text-align: right;
+}
+
+tbody td {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: 13px;
+  vertical-align: middle;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+tbody tr:hover td {
+  background: #fffaf0;
+}
+
+tbody td.name {
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+tbody td.num {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+tbody td.quiet {
+  color: var(--orange-ink);
+  font-weight: 500;
+}
+
+tbody td.pw-missing {
+  color: var(--orange-ink);
+  font-weight: 600;
+}
+
+.roster-foot {
+  padding: 14px 20px 18px;
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ============================ Responsive ============================ */
+
+/* Tablet: the 394px rails stop earning their width. */
+@media (max-width: 1180px) {
+  .hero,
+  .columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tiles .tile-chart {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Phone: sidebar becomes a bottom tab bar, which is what a coordinator
+   checking between pallets actually needs. */
+@media (max-width: 760px) {
+  body {
+    padding-bottom: 68px;
+  }
+
+  .shell {
+    padding: 0;
+  }
+
+  .app-window {
+    grid-template-columns: minmax(0, 1fr);
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 6px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .brand,
+  .sidebar-spacer,
+  .assistant-card {
+    display: none;
+  }
+
+  .nav {
+    flex: 1;
+    flex-direction: row;
+  }
+
+  .nav-item {
+    flex-direction: column;
+    gap: 3px;
+    padding: 6px 4px;
+    font-size: 10.5px;
+    text-align: center;
+  }
+
+  .nav-item .label {
+    flex: none;
+  }
+
+  .nav-badge {
+    position: absolute;
+    margin: -4px 0 0 16px;
+  }
+
+  .main {
+    padding: 16px 16px 24px;
+    gap: 16px;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+  }
+
+  .search {
+    order: 3;
+    width: 100%;
+  }
+
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .shift-card h2 {
+    font-size: 24px;
+  }
+
+  .capacity .slots {
+    width: 100%;
+  }
+
+  .slot {
+    flex: 1;
+  }
+
+  .crew-row {
+    align-items: flex-start;
+  }
+
+  .crew-row .pill {
+    align-self: center;
+  }
+
+  /* The roster table keeps its columns and scrolls sideways rather than
+     collapsing into unreadable stacked cards. */
+  thead th,
+  tbody td {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
