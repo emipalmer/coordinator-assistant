@@ -71,6 +71,22 @@ const signed = (body: string, ts = String(Date.now()), secret = env.BRIDGE_SHARE
   await mongo.close();
 }
 
+// --- 2b. Google: forged or replayed OAuth callbacks are refused; tokens are encrypted at rest --
+{
+  const ssm = new SSMClient({});
+  const secret = (await ssm.send(new GetParameterCommand({ Name: '/coord/dashboard-secret', WithDecryption: true }))).Parameter!.Value!;
+  const ref = (p: string) => `g:${createHash('sha256').update(p).digest('base64url').slice(0, 16)}`;
+  const cb = (q: string) => fetch(`${apiBase}/google/callback${q}`).then((r) => r.status);
+  check((await cb('?code=x')) === 400, 'Google callback rejects a missing state (CSRF)');
+  check((await cb('?code=x&state=forged')) === 400, 'Google callback rejects a forged state');
+  check((await cb(`?code=x&state=${signLink(secret, ref(coordinator), new Date(Date.now() - 1000))}`)) === 400, 'Google callback rejects an expired state');
+  check((await cb(`?code=x&state=${signLink(secret, ref('+15555550123'), new Date(Date.now() + 60_000))}`)) === 400, 'Google callback rejects a state for a non-coordinator');
+  const mongo = new MongoClient(env.MONGODB_URI!);
+  const conns = await mongo.db('coord').collection('googleConnections').find().toArray();
+  check(conns.every((c) => typeof c.refreshTokenSealed === 'string' && c.refreshTokenSealed.startsWith('v1.') && !JSON.stringify(c).includes('1//')), `Google refresh tokens are encrypted at rest (${conns.length} connection(s))`);
+  await mongo.close();
+}
+
 // --- 3. S3: generated forms and photos are never publicly readable -------------------------
 {
   const bucket = outputs.FilesBucket!;

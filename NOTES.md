@@ -24,12 +24,20 @@ iMessage assistant for volunteer coordinators. Built at c0mpiled-15 (Penn State)
 6. `npx cdk bootstrap` (once), then `npm run deploy -w infra`; copy `IngressUrl` / `OutboundQueueUrl` from `cdk-outputs.json` into `.env`.
 7. `npm run bridge`.
 
+## Google (optional)
+1. Google Cloud project "Tari": enable Calendar API + Gmail API.
+2. Google Auth Platform: External audience, **Testing** status, add the coordinator's Google account as a test user.
+3. Web OAuth client, redirect URI = stack output `GoogleRedirectUri`.
+4. `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env`, then `npx tsx --env-file=.env scripts/store-google-client.ts`.
+5. Text Tari "connect Google". In Testing status, Google shows an unverified-app screen and refresh tokens expire after 7 days (Tari asks to reconnect).
+
 ## Gotchas hit
 - BlueBubbles resolves `localhost` webhooks to IPv6; the bridge listens on 127.0.0.1 only, so the webhook must be registered as `http://127.0.0.1:...`.
 - Atlas connection string: replace `<db_password>` including the angle brackets.
 - Editors with `.env` open can overwrite lines written by scripts; close the tab after editing.
 
 ## Known gaps
+- Google app is in Testing mode (unverified, 7-day tokens). Production needs Google verification for the Gmail compose scope.
 - New AWS account was in "being verified" state at 3:30pm. Titan embeddings worked by ~3:55pm, but Claude on Bedrock still needs the Anthropic use-case form, so the agent runs on the Anthropic API (`LLM_PROVIDER=anthropic`) until then. Same tool loop; switching is an env change + redeploy.
 - All events and messages share one FIFO group (the first coordinator). Fine for one coordinator; multiple coordinators would need per-coordinator event fan-out.
 - Deployed with root credentials via `aws login` (hackathon only). Lambdas use least-privilege roles.

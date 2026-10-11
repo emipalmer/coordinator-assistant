@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { ObjectId } from 'mongodb';
-import { buildIcs, formatLocal, localDate, localToUtc, type Shift } from '@app/core';
+import { formatLocal, localDate, localToUtc, type Shift } from '@app/core';
+import { shiftIcsFile } from '../artifacts.js';
+import { busyBlocks, syncShiftToCalendar } from './google.js';
+import { getConnection } from '../google.js';
 import { storeFile } from '../files.js';
 import { defineTool, type ToolContext } from './registry.js';
 import { resolveVolunteer } from './volunteers.js';
@@ -45,7 +48,10 @@ export const createShift = defineTool({
     if (end <= start) return { ok: false, content: 'Shift end must be after start.' };
     const doc: Shift = { ...input, start, end, status: 'scheduled', createdAt: new Date() };
     const res = await ctx.c.shifts.insertOne(doc);
-    return { ok: true, content: JSON.stringify({ created: await shiftView(ctx, { ...doc, _id: res.insertedId }) }) };
+    const saved = { ...doc, _id: res.insertedId };
+    const calendar = await syncShiftToCalendar(ctx, saved);
+    const conflicts = await calendarConflicts(ctx, start, end);
+    return { ok: true, content: JSON.stringify({ created: await shiftView(ctx, saved), calendar, ...(conflicts && { coordinatorBusyDuringShift: conflicts }) }) };
   },
 });
 
@@ -156,18 +162,63 @@ export const shiftCalendarFile = defineTool({
   async run(ctx, input) {
     const s = (await ctx.c.shifts.findOne({ _id: new ObjectId(input.shiftId) })) as (Shift & { _id: ObjectId }) | null;
     if (!s) return { ok: false, content: 'No shift with that id.' };
-    const settings = await ctx.c.settings.findOne({ _id: 'org' });
-    const ics = buildIcs({
-      uid: `shift-${input.shiftId}@coordinator-assistant`,
-      start: s.start,
-      end: s.end,
-      title: `${s.title}${settings ? ` - ${settings.orgName}` : ''}`,
-      location: s.location,
-      description: s.description,
-      stamp: ctx.now,
-    });
-    const slug = `${s.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${localDate(s.start, ctx.timezone)}`;
-    ctx.attachments.push(await storeFile('calendar', `${slug}.ics`, new TextEncoder().encode(ics), 'text/calendar'));
+    const f = await shiftIcsFile(ctx, s);
+    ctx.attachments.push(await storeFile('calendar', f.filename, f.bytes, f.contentType));
     return { ok: true, content: JSON.stringify({ shift: await shiftView(ctx, s), note: 'The .ics file follows your reply. Offer a short [[draft]] to send with it.' }) };
+  },
+});
+
+/** Busy blocks on the coordinator's own calendar that overlap a shift (other than the shift itself). */
+async function calendarConflicts(ctx: ToolContext, start: Date, end: Date) {
+  if (!(await getConnection(ctx.c, ctx.coordinator))) return null;
+  try {
+    const busy = (await busyBlocks(ctx, start, end)).filter((b) => !(b.start.getTime() === start.getTime() && b.end.getTime() === end.getTime()));
+    return busy.length ? busy.map((b) => `${formatLocal(b.start, ctx.timezone)} - ${formatLocal(b.end, ctx.timezone)}`) : null;
+  } catch {
+    return null;
+  }
+}
+
+export const updateShift = defineTool({
+  name: 'update_shift',
+  description: 'Change a shift\'s time, title, location, capacity, or description. Keeps the Google Calendar event in sync.',
+  input: z.object({
+    shiftId: Id,
+    title: z.string().min(1).optional(),
+    start: LocalDateTime.optional(),
+    end: LocalDateTime.optional(),
+    location: z.string().optional(),
+    capacity: z.number().int().min(1).max(200).optional(),
+    description: z.string().optional(),
+  }),
+  async run(ctx, input) {
+    const s = (await ctx.c.shifts.findOne({ _id: new ObjectId(input.shiftId) })) as (Shift & { _id: ObjectId }) | null;
+    if (!s) return { ok: false, content: 'No shift with that id.' };
+    const { shiftId: _id, start, end, ...rest } = input;
+    const next: Shift & { _id: ObjectId } = {
+      ...s,
+      ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)),
+      ...(start && { start: localToUtc(start, ctx.timezone) }),
+      ...(end && { end: localToUtc(end, ctx.timezone) }),
+    };
+    if (next.end <= next.start) return { ok: false, content: 'Shift end must be after start.' };
+    const { _id: id, ...set } = next;
+    await ctx.c.shifts.updateOne({ _id: id }, { $set: set });
+    const calendar = await syncShiftToCalendar(ctx, next);
+    return { ok: true, content: JSON.stringify({ updated: await shiftView(ctx, next), calendar, note: 'Offer a [[draft]] telling the signed-up volunteers about the change.' }) };
+  },
+});
+
+export const cancelShift = defineTool({
+  name: 'cancel_shift',
+  description: 'Cancel a whole shift (not one volunteer). Removes it from Google Calendar. Signed-up volunteers should be told: offer a [[draft]].',
+  input: z.object({ shiftId: Id }),
+  async run(ctx, input) {
+    const s = (await ctx.c.shifts.findOne({ _id: new ObjectId(input.shiftId) })) as (Shift & { _id: ObjectId }) | null;
+    if (!s) return { ok: false, content: 'No shift with that id.' };
+    await ctx.c.shifts.updateOne({ _id: s._id }, { $set: { status: 'cancelled' } });
+    const calendar = await syncShiftToCalendar(ctx, { ...s, status: 'cancelled' });
+    const view = await shiftView(ctx, s);
+    return { ok: true, content: JSON.stringify({ cancelled: view.title, when: view.when, volunteersToNotify: view.volunteers, calendar }) };
   },
 });

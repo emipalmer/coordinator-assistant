@@ -50,6 +50,8 @@ export interface Shift {
   description: string;
   status: 'scheduled' | 'cancelled';
   createdAt: Date;
+  /** Google Calendar event ids by coordinator, when synced. */
+  googleEvents?: Record<string, string>;
 }
 
 // Separate collection so a cancellation is a single status flip a change stream can match on.

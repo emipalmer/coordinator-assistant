@@ -5,6 +5,7 @@ import {
   renderFormPdf, renderImpactPdf, type FormTemplate, type Settings,
 } from '@app/core';
 import { storeFile } from '../files.js';
+import { onboardingPacketFile } from '../artifacts.js';
 import type { FormSubmission } from '../db.js';
 import { defineTool, type ToolContext } from './registry.js';
 import { resolveVolunteer } from './volunteers.js';
@@ -155,12 +156,8 @@ export const onboardingPacketTool = defineTool({
     const found = await resolveVolunteer(ctx, input.name);
     if ('error' in found) return { ok: false, content: found.error };
     const v = found.volunteer;
-    const settings = await settingsOf(ctx);
-    const t = FORM_TEMPLATES.onboarding_packet!;
-    const values = { ...prefill(t, { volunteer: v, orgName: settings.orgName, today: localDate(ctx.now, ctx.timezone) }), interests: v.interests.join(', ') };
-    const pdf = await renderFormPdf(t, values, { orgName: settings.orgName, generatedLabel: `Prepared ${localDate(ctx.now, ctx.timezone)}`, isMinor: v.isMinor });
-    const slug = v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    ctx.attachments.push(await storeFile('packets', `onboarding-${slug}.pdf`, pdf, 'application/pdf'));
+    const f = await onboardingPacketFile(ctx, v);
+    ctx.attachments.push(await storeFile('packets', f.filename, f.bytes, f.contentType));
     return { ok: true, content: JSON.stringify({ volunteer: v.name, includesGuardianConsent: v.isMinor, note: 'PDF attached after your reply. Offer a short [[draft]] message to send with it.' }) };
   },
 });

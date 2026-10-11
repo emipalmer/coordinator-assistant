@@ -29,6 +29,14 @@ export interface FormSubmission {
   updatedAt: Date;
 }
 
+export interface GoogleConnection {
+  _id: string; // coordinator E.164
+  email: string;
+  refreshTokenSealed: string; // AES-256-GCM, key in SSM; never stored in plaintext
+  scopes: string[];
+  connectedAt: Date;
+}
+
 export const collections = (db: Db) => ({
   volunteers: db.collection<Volunteer>('volunteers'),
   shifts: db.collection<Shift>('shifts'),
@@ -38,5 +46,6 @@ export const collections = (db: Db) => ({
   settings: db.collection<Settings>('settings'),
   formSubmissions: db.collection<FormSubmission>('formSubmissions'),
   coordinators: db.collection<CoordinatorProfile>('coordinators'),
+  googleConnections: db.collection<GoogleConnection>('googleConnections'),
 });
 export type Collections = ReturnType<typeof collections>;

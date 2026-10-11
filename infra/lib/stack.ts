@@ -24,7 +24,7 @@ const CHART_ASSETS = [
   '@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf',
   '@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf',
 ];
-const SECRET_PARAMS = ['/coord/mongodb-uri', '/coord/anthropic-api-key', '/coord/dashboard-secret'];
+const SECRET_PARAMS = ['/coord/mongodb-uri', '/coord/anthropic-api-key', '/coord/dashboard-secret', '/coord/google-oauth-client', '/coord/token-key'];
 const DASHBOARD_SECRET_PARAM = '/coord/dashboard-secret';
 
 export class CoordinatorStack extends Stack {
@@ -133,6 +133,20 @@ export class CoordinatorStack extends Stack {
     api.addRoutes({ path: '/dashboard/data', methods: [HttpMethod.GET], integration: dashInt });
     agent.addEnvironment('DASHBOARD_URL', `${api.apiEndpoint}/dashboard`);
     agent.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
+
+    // Google OAuth: the coordinator approves access in a browser and Google redirects here.
+    const googleRedirect = `${api.apiEndpoint}/google/callback`;
+    const googleCallback = fn('GoogleCallback', 'googleCallback.ts', 20);
+    googleCallback.addEnvironment('GOOGLE_REDIRECT_URI', googleRedirect);
+    googleCallback.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
+    googleCallback.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);
+    outbound.grantSendMessages(googleCallback);
+    for (const name of ['/coord/mongodb-uri', DASHBOARD_SECRET_PARAM, '/coord/google-oauth-client', '/coord/token-key']) {
+      StringParameter.fromSecureStringParameterAttributes(this, `GoogleParam${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(googleCallback);
+    }
+    api.addRoutes({ path: '/google/callback', methods: [HttpMethod.GET], integration: new HttpLambdaIntegration('GoogleCallbackInt', googleCallback) });
+    agent.addEnvironment('GOOGLE_REDIRECT_URI', googleRedirect);
+    new CfnOutput(this, 'GoogleRedirectUri', { value: googleRedirect });
 
     new CfnOutput(this, 'IngressUrl', { value: `${api.apiEndpoint}/inbound` });
     new CfnOutput(this, 'OutboundQueueUrl', { value: outbound.queueUrl });
