@@ -5,3 +5,7 @@ node_modules/
 dist/
 cdk.out/
 cdk-outputs.json
+AWS monetization Private Beta Welcome Letter (October).pdf
+# Confidential / credentials: never commit
+.npmrc
+*.pdf

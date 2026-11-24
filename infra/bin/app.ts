@@ -1,12 +1,13 @@
 import { App } from 'aws-cdk-lib';
-import { CoordinatorStack } from '../lib/stack.js';
+import { AssistantStack } from '../lib/stack.js';
+import { STACK_NAME } from '../../packages/core/src/params.js';
 
 const app = new App();
-const allowlist = process.env.COORDINATOR_ALLOWLIST;
-if (!allowlist) throw new Error('COORDINATOR_ALLOWLIST must be set (see .env.example)');
+const allowlist = process.env.ALLOWLIST;
+if (!allowlist) throw new Error('ALLOWLIST must be set (see .env.example)');
 
-new CoordinatorStack(app, 'CoordinatorAssistant', {
+new AssistantStack(app, STACK_NAME, {
   env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: 'us-east-1' },
   allowlist,
-  llmProvider: process.env.LLM_PROVIDER ?? 'bedrock',
+  llmProvider: process.env.LLM_PROVIDER ?? 'anthropic',
 });

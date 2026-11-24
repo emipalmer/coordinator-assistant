@@ -33,7 +33,7 @@ export function parseWebhook(body: unknown): ParseResult {
   if (!from) return { ok: false, reason: 'sender is not a phone number' };
   const chatGuid = m.chats?.[0]?.guid;
   if (!chatGuid) return { ok: false, reason: 'no chat' };
-  // Group chats contain ';+;' — the assistant only works 1:1 with a coordinator.
+  // Group chats contain ';+;' — the assistant only works 1:1 with its owner.
   if (chatGuid.includes(';+;')) return { ok: false, reason: 'group chat' };
 
   return {

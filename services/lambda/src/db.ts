@@ -1,64 +1,98 @@
 import { MongoClient, type Db } from 'mongodb';
-import type { AttendanceRecord, Assignment, CoordinatorProfile, FormValues, Settings, Shift, Volunteer } from '@app/core';
+import { DB_NAME, type NudgeKind, type OwnerProfile, type Repeat } from '@app/core';
 
 let client: MongoClient | undefined;
 
-// Reused across warm Lambda invocations; a small pool is plenty for one coordinator.
+// Reused across warm Lambda invocations; a small pool is plenty for one person.
 export async function getDb(uri: string): Promise<Db> {
   if (!client) {
-    client = new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000, appName: 'coordinator-assistant' });
+    client = new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000, appName: 'personal-assistant' });
     await client.connect();
   }
-  return client.db('coord');
+  return client.db(DB_NAME);
 }
 
 export interface ConversationDoc {
-  _id: string; // coordinator E.164
+  _id: string; // owner E.164
   turns: Array<{ role: 'user' | 'assistant'; text: string; at: Date }>;
-  activeFormSubmissionId?: unknown;
-}
-
-export interface FormSubmission {
-  templateId: string;
-  coordinator: string;
-  volunteerId?: unknown;
-  values: FormValues;
-  status: 'in_progress' | 'complete' | 'cancelled';
-  pdfKey?: string;
-  createdAt: Date;
-  updatedAt: Date;
 }
 
 export interface GoogleConnection {
-  _id: string; // coordinator E.164
+  _id: string; // owner E.164
   email: string;
   refreshTokenSealed: string; // AES-256-GCM, key in SSM; never stored in plaintext
   scopes: string[];
   connectedAt: Date;
-  /** The dedicated "Tari" calendar this app created in the coordinator's account. */
-  calendarId?: string;
+  /** Set when Google rejects the refresh token; the user is asked to reconnect. */
+  expiredAt?: Date;
+}
+
+/** Something the owner asked to be reminded about. The ticker fires it; repeating ones roll forward. */
+export interface ReminderDoc {
+  _id: string; // 6 hex chars, shown to the model for cancel_reminder
+  owner: string;
+  text: string;
+  dueAt: Date;
+  repeat?: Repeat;
+  status: 'pending' | 'sent' | 'cancelled';
+  createdAt: Date;
+  sentAt?: Date;
+}
+
+/** A Canvas assignment seen in the feed, with nudge bookkeeping and the owner's "done". */
+export interface DeadlineDoc {
+  _id: string; // `${owner}|${feed uid}`
+  owner: string;
+  uid: string;
+  title: string;
+  course?: string;
+  due: Date;
+  allDay: boolean;
+  date: string;
+  nudged: Partial<Record<NudgeKind, Date>>;
+  doneAt?: Date;
+  seenAt: Date;
+}
+
+/** One picture in the capybara stash (shared by every owner). Stocked from capy.lol or texted in by the owner. */
+export interface CapyDoc {
+  _id: string; // "capy-<capy.lol index>" or "own-<6 hex>"
+  key: string; // S3 key under stash/
+  alt?: string; // description of the photo (capy.lol's alt text)
+  source: 'capy.lol' | 'owner';
+  addedAt: Date;
+  sends: number;
+  lastSentAt?: Date;
+  /** "Don't send that one again": kept so the stocker doesn't re-add it. */
+  removedAt?: Date;
+}
+
+/** One day's random drop times (capybara pics or pep talks) for one owner; `done` holds the ones already sent or skipped. */
+export interface DayPlanDoc {
+  _id: string; // `${kind}|${owner}|${YYYY-MM-DD}`
+  perDay: number;
+  times: Date[];
+  done: Date[];
 }
 
 export const collections = (db: Db) => ({
-  volunteers: db.collection<Volunteer>('volunteers'),
-  shifts: db.collection<Shift>('shifts'),
-  assignments: db.collection<Assignment>('assignments'),
-  attendance: db.collection<AttendanceRecord>('attendance'),
   conversations: db.collection<ConversationDoc>('conversations'),
-  settings: db.collection<Settings>('settings'),
-  formSubmissions: db.collection<FormSubmission>('formSubmissions'),
-  coordinators: db.collection<CoordinatorProfile>('coordinators'),
+  profiles: db.collection<OwnerProfile>('profiles'),
   googleConnections: db.collection<GoogleConnection>('googleConnections'),
+  reminders: db.collection<ReminderDoc>('reminders'),
+  deadlines: db.collection<DeadlineDoc>('deadlines'),
+  capys: db.collection<CapyDoc>('capys'),
+  dayPlans: db.collection<DayPlanDoc>('dayPlans'),
 });
 export type Collections = ReturnType<typeof collections>;
 
 /**
- * Save a message Tari sent outside a normal turn (e.g. from the Google sign-in callback) into the
+ * Save a message sent outside a normal turn (e.g. from the Google sign-in callback) into the
  * thread, so a reply like "A" to its options has context.
  */
-export async function recordAssistantMessage(c: Collections, coordinator: string, text: string) {
+export async function recordAssistantMessage(c: Collections, owner: string, text: string) {
   await c.conversations.updateOne(
-    { _id: coordinator },
+    { _id: owner },
     { $push: { turns: { $each: [{ role: 'assistant' as const, text, at: new Date() }], $slice: -40 } } },
     { upsert: true },
   );

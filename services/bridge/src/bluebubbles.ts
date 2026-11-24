@@ -18,7 +18,34 @@ export function createBlueBubbles(baseUrl: string, password: string) {
     return json.data as T;
   }
 
+  const exists = async (chatGuid: string) => {
+    const res = await fetch(url(`/api/v1/chat/${encodeURIComponent(chatGuid)}`), { signal: AbortSignal.timeout(10_000) });
+    return res.ok;
+  };
+
+  // Messages names 1:1 chats differently across macOS versions: "iMessage;-;<handle>" up to macOS 15,
+  // "any;-;<handle>" from macOS 26 on. Ask BlueBubbles which one exists instead of guessing, and remember it.
+  const guidCache = new Map<string, string>();
+  async function chatGuidFor(handle: string): Promise<string> {
+    const hit = guidCache.get(handle);
+    if (hit) return hit;
+    for (const prefix of CHAT_PREFIXES) {
+      const guid = `${prefix};-;${handle}`;
+      if (await exists(guid)) {
+        guidCache.set(handle, guid);
+        return guid;
+      }
+    }
+    // No chat yet: use whatever prefix this Mac's existing chats use.
+    const recent = await call<Array<{ guid: string }>>('POST', '/api/v1/chat/query', { limit: 1, offset: 0, with: [] }).catch(() => []);
+    const prefix = recent[0]?.guid.split(';')[0] ?? 'any';
+    return `${prefix};-;${handle}`;
+  }
+
   return {
+    chatGuidFor,
+    /** Forget a cached chat id (after a failed send, in case Messages renamed it). */
+    forgetChat: (handle: string) => guidCache.delete(handle),
     // Without the Private API, AppleScript is the only send method available.
     sendText: (chatGuid: string, message: string) =>
       call('POST', '/api/v1/message/text', { chatGuid, message, tempGuid: `temp-${randomUUID()}`, method: 'apple-script' }),
@@ -47,5 +74,4 @@ export function createBlueBubbles(baseUrl: string, password: string) {
 }
 export type BlueBubbles = ReturnType<typeof createBlueBubbles>;
 
-/** 1:1 iMessage chats are addressed as iMessage;-;<handle>. */
-export const directChatGuid = (e164: string) => `iMessage;-;${e164}`;
+const CHAT_PREFIXES = ['any', 'iMessage', 'SMS'] as const;

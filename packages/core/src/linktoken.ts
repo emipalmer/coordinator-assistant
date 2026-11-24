@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-// Dashboard links go out by iMessage, so they carry their own expiring signature instead of a login.
+// Signed, expiring tokens (used for the Google OAuth state) so a link carries its own proof instead of a login.
 
 const b64url = (b: Buffer | string) => Buffer.from(b).toString('base64url');
 
@@ -10,7 +10,7 @@ export function signLink(secret: string, subject: string, expiresAt: Date): stri
   return `${payload}.${sig}`;
 }
 
-/** Returns the subject (coordinator number) if the token is authentic and unexpired. */
+/** Returns the subject if the token is authentic and unexpired. */
 export function verifyLink(secret: string, token: string | undefined, now = Date.now()): string | null {
   if (!token) return null;
   const [payload, sig] = token.split('.');

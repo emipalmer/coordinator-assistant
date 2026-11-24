@@ -4,7 +4,6 @@ import { loadConfig } from './config.js';
 import { createBlueBubbles } from './bluebubbles.js';
 import { parseWebhook } from './webhook.js';
 import { startOutboundPoller } from './outbound.js';
-import { watchCancellations } from './changes.js';
 import { uploadImages } from './photos.js';
 
 const log = createLogger({ svc: 'bridge' });
@@ -86,9 +85,5 @@ server.listen(cfg.BRIDGE_PORT, '127.0.0.1', async () => {
   log.info('bridge listening', { port: cfg.BRIDGE_PORT, mode: cfg.INGRESS_URL ? 'aws' : 'local-echo' });
   await ensureWebhook().catch((err) => log.error('webhook registration failed', { err }));
   if (cfg.OUTBOUND_QUEUE_URL) startOutboundPoller(cfg, bb, log);
-  if (cfg.MONGODB_URI && cfg.INGRESS_URL) {
-    const eventsUrl = cfg.INGRESS_URL.replace(/\/inbound$/, '/events');
-    await watchCancellations(cfg.MONGODB_URI, (e) => postSigned(eventsUrl, e), log).catch((err) => log.error('change stream failed to start', { err }));
-  }
 });
 

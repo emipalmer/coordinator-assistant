@@ -1,39 +1,42 @@
 import { createHash } from 'node:crypto';
-import { decryptSecret, encryptSecret, signLink, verifyLink } from '@app/core';
+import { decryptSecret, encryptSecret, PARAMS, signLink, verifyLink } from '@app/core';
 import { getSecret } from './secrets.js';
 import { requireEnv } from './env.js';
-import type { Collections } from './db.js';
+import type { Collections, GoogleConnection } from './db.js';
 
-// Least privilege: identify the account, manage ONLY calendars Tari itself created (shifts live on a
-// dedicated "Tari" calendar, never the coordinator's own), read busy/free only, write drafts (never send).
-export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
+export type { GoogleConnection };
+
+export const TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks';
+
+// Personal-assistant scopes: read and edit events on all of the owner's calendars, list them,
+// read mail, write drafts, and manage Google Tasks. There is deliberately no gmail.send / gmail.modify:
+// it can never send or delete mail.
 export const GOOGLE_SCOPES = [
   'openid',
   'email',
-  CALENDAR_SCOPE,
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   'https://www.googleapis.com/auth/calendar.freebusy',
+  'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
+  TASKS_SCOPE,
 ];
-
-import type { GoogleConnection } from './db.js';
-export type { GoogleConnection };
 
 const connections = (c: Collections) => c.googleConnections;
 
 async function clientCreds() {
-  const raw = await getSecret('/coord/google-oauth-client');
-  return JSON.parse(raw) as { id: string; secret: string };
+  return JSON.parse(await getSecret(PARAMS.googleClient)) as { id: string; secret: string };
 }
-const tokenKey = () => getSecret('/coord/token-key');
-const stateSecret = () => getSecret(requireEnv('DASHBOARD_SECRET_PARAM'));
+const tokenKey = () => getSecret(PARAMS.tokenKey);
+const stateSecret = () => getSecret(PARAMS.stateSecret);
 export const redirectUri = () => requireEnv('GOOGLE_REDIRECT_URI');
 
 /** Opaque, so the OAuth state (visible in URLs) never carries a phone number. */
-export const coordinatorRef = (phone: string) => `g:${createHash('sha256').update(phone).digest('base64url').slice(0, 16)}`;
+export const ownerRef = (phone: string) => `g:${createHash('sha256').update(phone).digest('base64url').slice(0, 16)}`;
 
-export async function authUrl(coordinator: string): Promise<string> {
+export async function authUrl(owner: string): Promise<string> {
   const { id } = await clientCreds();
-  const state = signLink(await stateSecret(), coordinatorRef(coordinator), new Date(Date.now() + 15 * 60_000));
+  const state = signLink(await stateSecret(), ownerRef(owner), new Date(Date.now() + 15 * 60_000));
   const q = new URLSearchParams({
     client_id: id,
     redirect_uri: redirectUri(),
@@ -51,8 +54,8 @@ export async function verifyState(state: string | undefined): Promise<string | n
   return verifyLink(await stateSecret(), state);
 }
 
-/** Exchange the callback code and store the encrypted refresh token for this coordinator. */
-export async function completeConnection(c: Collections, coordinator: string, code: string): Promise<GoogleConnection> {
+/** Exchange the callback code and store the encrypted refresh token for this owner. */
+export async function completeConnection(c: Collections, owner: string, code: string): Promise<GoogleConnection> {
   const { id, secret } = await clientCreds();
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -63,40 +66,41 @@ export async function completeConnection(c: Collections, coordinator: string, co
   if (!res.ok || !tok.refresh_token) throw new Error(`token exchange failed: ${tok.error ?? res.status}`);
   // id_token comes straight from Google's token endpoint over TLS, so decoding (not verifying) is sufficient here.
   const email = tok.id_token ? (JSON.parse(Buffer.from(tok.id_token.split('.')[1]!, 'base64url').toString()) as { email?: string }).email : undefined;
-  const previous = await connections(c).findOne({ _id: coordinator });
   const conn: GoogleConnection = {
-    _id: coordinator,
+    _id: owner,
     email: email ?? 'your Google account',
     refreshTokenSealed: encryptSecret(await tokenKey(), tok.refresh_token),
     scopes: (tok.scope ?? '').split(' ').filter(Boolean),
     connectedAt: new Date(),
-    // Keep the existing Tari calendar across reconnects so events aren't duplicated.
-    ...(previous?.calendarId && { calendarId: previous.calendarId }),
   };
-  await connections(c).replaceOne({ _id: coordinator }, conn, { upsert: true });
-  accessCache.delete(coordinator);
+  await connections(c).replaceOne({ _id: owner }, conn, { upsert: true });
+  accessCache.delete(owner);
   return conn;
 }
 
-export const getConnection = (c: Collections, coordinator: string) => connections(c).findOne({ _id: coordinator });
+// An expired connection keeps its record but no longer counts as connected.
+export const getConnection = (c: Collections, owner: string) => connections(c).findOne({ _id: owner, expiredAt: { $exists: false } });
 
-export async function disconnect(c: Collections, coordinator: string) {
-  const conn = await getConnection(c, coordinator);
+/** Scopes the user didn't tick on Google's consent screen (it lets them untick individual ones). */
+export const missingScopes = (conn: GoogleConnection) => GOOGLE_SCOPES.filter((s) => s.startsWith('https://') && !conn.scopes.includes(s));
+
+export async function disconnect(c: Collections, owner: string) {
+  const conn = await getConnection(c, owner);
   if (!conn) return false;
   const refresh = decryptSecret(await tokenKey(), conn.refreshTokenSealed);
   // Revoke at Google too, so the grant disappears from their account, not just our database.
   await fetch('https://oauth2.googleapis.com/revoke', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: refresh }) }).catch(() => {});
-  await connections(c).deleteOne({ _id: coordinator });
-  accessCache.delete(coordinator);
+  await connections(c).deleteOne({ _id: owner });
+  accessCache.delete(owner);
   return true;
 }
 
 const accessCache = new Map<string, { token: string; expiresAt: number }>();
 
-async function accessToken(c: Collections, coordinator: string): Promise<string> {
-  const hit = accessCache.get(coordinator);
+async function accessToken(c: Collections, owner: string): Promise<string> {
+  const hit = accessCache.get(owner);
   if (hit && hit.expiresAt > Date.now() + 60_000) return hit.token;
-  const conn = await getConnection(c, coordinator);
+  const conn = await getConnection(c, owner);
   if (!conn) throw new GoogleNotConnected();
   const { id, secret } = await clientCreds();
   const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -106,29 +110,25 @@ async function accessToken(c: Collections, coordinator: string): Promise<string>
   });
   const tok = (await res.json()) as { access_token?: string; expires_in?: number; error?: string };
   if (!res.ok || !tok.access_token) {
-    // invalid_grant = revoked, or a Testing-mode app's 7-day refresh token expired. Ask to reconnect.
-    if (tok.error === 'invalid_grant') await connections(c).deleteOne({ _id: coordinator });
+    // invalid_grant = revoked, or (in Testing status) the 7-day refresh token expired. Ask to reconnect.
+    if (tok.error === 'invalid_grant') await connections(c).updateOne({ _id: owner }, { $set: { expiredAt: new Date() }, $unset: { refreshTokenSealed: '' } });
     throw new GoogleNotConnected(tok.error);
   }
-  accessCache.set(coordinator, { token: tok.access_token, expiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000 });
+  accessCache.set(owner, { token: tok.access_token, expiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000 });
   return tok.access_token;
 }
 
 export class GoogleNotConnected extends Error {
   constructor(reason?: string) {
-    super(
-      reason === 'invalid_grant' ? 'Google access expired or was revoked; reconnect with connect_google.'
-        : reason === 'needs_reconnect' ? 'Tari now uses its own separate calendar, which needs a one-time reconnect; send a connect_google link.'
-          : 'Google is not connected; use connect_google.',
-    );
+    super(reason === 'invalid_grant' ? 'Google access expired or was revoked; reconnect with connect_google.' : 'Google is not connected; use connect_google.');
   }
 }
 
-/** Authenticated JSON call to a Google API on the coordinator's behalf. */
-export async function googleApi<T>(c: Collections, coordinator: string, method: string, url: string, body?: unknown): Promise<T> {
+/** Authenticated JSON call to a Google API on the owner's behalf. */
+export async function googleApi<T>(c: Collections, owner: string, method: string, url: string, body?: unknown): Promise<T> {
   const res = await fetch(url, {
     method,
-    headers: { authorization: `Bearer ${await accessToken(c, coordinator)}`, ...(body !== undefined && { 'content-type': 'application/json' }) },
+    headers: { authorization: `Bearer ${await accessToken(c, owner)}`, ...(body !== undefined && { 'content-type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(20_000),
   });

@@ -1,9 +1,8 @@
 {
-  "name": "coordinator-assistant",
+  "name": "personal-assistant",
   "private": true,
   "type": "module",
   "workspaces": [
-    "apps/*",
     "packages/*",
     "services/*",
     "infra"
@@ -13,11 +12,10 @@
     "typecheck": "tsc -b",
     "bridge": "npm run start -w services/bridge",
     "bridge:forever": "./scripts/run-bridge.sh",
-    "seed": "tsx --env-file=.env scripts/seed.ts",
     "say": "tsx --env-file=.env scripts/say.ts",
     "security-check": "tsx --env-file=.env scripts/security-check.ts",
-    "web": "npm run dev -w @app/web",
-    "web:build": "npm run build -w @app/web"
+    "secrets": "tsx --env-file=.env scripts/setup-secrets.ts",
+    "deploy": "npm run deploy -w infra"
   },
   "devDependencies": {
     "@aws-sdk/client-cloudwatch-logs": "^3.1149.0",

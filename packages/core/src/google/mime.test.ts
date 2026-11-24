@@ -23,6 +23,13 @@ describe('buildMime', () => {
     expect(m).toContain('Content-Disposition: attachment; filename="packet.pdf"');
     expect(m.trimEnd().endsWith('--B--')).toBe(true);
   });
+  it('threads replies and strips newlines from message ids', () => {
+    const m = buildMime({ to: ['a@b.org'], cc: ['c@d.org', 'bad'], subject: 'Re: x', text: 't', inReplyTo: '<id@mail>\r\nBcc: evil@x.com' });
+    const lines = m.split('\r\n');
+    expect(lines).toContain('Cc: c@d.org');
+    expect(lines.find((l) => l.startsWith('In-Reply-To:'))).toBe('In-Reply-To: <id@mail> Bcc: evil@x.com');
+    expect(lines.some((l) => l.startsWith('Bcc:'))).toBe(false);
+  });
   it('produces base64url for the Gmail API', () => {
     expect(toGmailRaw('a?b>c')).not.toMatch(/[+/=]/);
   });

@@ -1,15 +1,15 @@
-// Demo fallback / test helper: send a coordinator message straight to the ingress API (skipping
-// BlueBubbles) and print the agent's reply from MongoDB. Same agent, same tools.
-//   npx tsx --env-file=.env scripts/say.ts "Who's missing paperwork?"
+// Test helper: send a message straight to the ingress API (skipping BlueBubbles) and print the
+// agent's reply from MongoDB. Same agent, same tools. The reply is ALSO texted to you via the bridge.
+//   npm run say -- "What's due this week?"
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
-import { sign, SIGNATURE_HEADER, TIMESTAMP_HEADER, type InboundMessage } from '@app/core';
+import { DB_NAME, sign, SIGNATURE_HEADER, TIMESTAMP_HEADER, type InboundMessage } from '@app/core';
 
 const text = process.argv.slice(2).join(' ');
 if (!text) throw new Error('usage: say.ts "<message>"');
-const from = process.env.COORDINATOR_ALLOWLIST!.split(',')[0]!.trim();
+const from = process.env.ALLOWLIST!.split(',')[0]!.trim();
 const mongo = new MongoClient(process.env.MONGODB_URI!);
-const convos = mongo.db('coord').collection<{ _id: string; turns: Array<{ role: string; text: string }> }>('conversations');
+const convos = mongo.db(DB_NAME).collection<{ _id: string; turns: Array<{ role: string; text: string }> }>('conversations');
 const before = (await convos.findOne({ _id: from }))?.turns.length ?? 0;
 
 const msg: InboundMessage = { messageId: `say-${randomUUID()}`, from, chatGuid: `iMessage;-;${from}`, text, attachments: [], receivedAt: new Date().toISOString() };

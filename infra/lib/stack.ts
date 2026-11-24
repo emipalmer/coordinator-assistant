@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, TimeZone, type StackProps } from 'aws-cdk-lib';
 import type { Construct } from 'constructs';
 import { CfnStage, HttpApi, HttpMethod } from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -8,53 +8,54 @@ import { NodejsFunction, OutputFormat } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import { Schedule, ScheduleExpression, ScheduleTargetInput } from 'aws-cdk-lib/aws-scheduler';
-import { SqsSendMessage } from 'aws-cdk-lib/aws-scheduler-targets';
-import { TimeZone } from 'aws-cdk-lib';
+import { LambdaInvoke, SqsSendMessage } from 'aws-cdk-lib/aws-scheduler-targets';
 import { StringParameter } from 'aws-cdk-lib/aws-ssm';
-import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { PolicyStatement, User } from 'aws-cdk-lib/aws-iam';
+import type { IFunction } from 'aws-cdk-lib/aws-lambda';
 import { BlockPublicAccess, Bucket, BucketEncryption } from 'aws-cdk-lib/aws-s3';
-import { RemovalPolicy } from 'aws-cdk-lib';
 import { fileURLToPath } from 'node:url';
+import { PARAMS } from '../../packages/core/src/params.js';
 
 const lambdaSrc = (file: string) => fileURLToPath(new URL(`../../services/lambda/src/handlers/${file}`, import.meta.url));
 
-export const BRIDGE_SECRET_PARAM = '/coord/bridge-secret';
+// Chart PNGs: resvg's wasm and the Inter font are read from beside the bundle at runtime.
 const CHART_ASSETS = [
   '@resvg/resvg-wasm/index_bg.wasm',
   '@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf',
   '@expo-google-fonts/inter/600SemiBold/Inter_600SemiBold.ttf',
 ];
-const SECRET_PARAMS = ['/coord/mongodb-uri', '/coord/anthropic-api-key', '/coord/dashboard-secret', '/coord/google-oauth-client', '/coord/token-key'];
-const DASHBOARD_SECRET_PARAM = '/coord/dashboard-secret';
 
-export class CoordinatorStack extends Stack {
+export class AssistantStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps & { allowlist: string; llmProvider: string }) {
     super(scope, id, props);
 
-    const fn = (name: string, file: string, timeout: number, extraCopies: string[] = []) =>
+    const fn = (name: string, file: string, timeout: number, memorySize = 1024) =>
       new NodejsFunction(this, name, {
         entry: lambdaSrc(file),
         runtime: Runtime.NODEJS_22_X,
         architecture: Architecture.ARM_64,
-        memorySize: 1024,
+        memorySize,
         timeout: Duration.seconds(timeout),
         logRetention: RetentionDays.ONE_WEEK,
         bundling: { format: OutputFormat.ESM, target: 'node22', sourceMap: true,
-          // Chart PNGs: resvg's wasm and the Inter font are read from beside the bundle at runtime.
           commandHooks: {
             beforeBundling: () => [],
             beforeInstall: () => [],
-            afterBundling: (_in: string, out: string) => [
-              ...CHART_ASSETS.map((a) => `cp ${fileURLToPath(new URL(`../../node_modules/${a}`, import.meta.url))} ${out}/`),
-              ...extraCopies.map((cmd) => cmd.replace('$OUT', out)),
-            ],
+            afterBundling: (_in: string, out: string) => CHART_ASSETS.map((a) => `cp ${fileURLToPath(new URL(`../../node_modules/${a}`, import.meta.url))} ${out}/`),
           },
           // ESM bundles need a real `require` for the few CJS deps that call it.
           banner: "import { createRequire as __bannerRequire } from 'module'; const require = __bannerRequire(import.meta.url);" },
-        environment: { COORDINATOR_ALLOWLIST: props.allowlist, NODE_OPTIONS: '--enable-source-maps' },
+        environment: { ALLOWLIST: props.allowlist, NODE_OPTIONS: '--enable-source-maps' },
       });
 
-    // FIFO + per-coordinator group id keeps a conversation strictly ordered.
+    // SecureStrings are created out of band by scripts/setup-secrets.ts (CloudFormation can't create them).
+    const grantParams = (to: IFunction, names: string[]) => {
+      for (const name of names) {
+        StringParameter.fromSecureStringParameterAttributes(this, `${to.node.id}${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(to);
+      }
+    };
+
+    // FIFO + per-number group id keeps a conversation strictly ordered.
     const secureQueue = { encryption: QueueEncryption.SQS_MANAGED, enforceSSL: true };
     const inboundDlq = new Queue(this, 'InboundDlq', { fifo: true, retentionPeriod: Duration.days(4), ...secureQueue });
     const inbound = new Queue(this, 'Inbound', {
@@ -65,96 +66,94 @@ export class CoordinatorStack extends Stack {
       visibilityTimeout: Duration.seconds(6 * 60),
       deadLetterQueue: { queue: inboundDlq, maxReceiveCount: 2 },
     });
-    const outbound = new Queue(this, 'Outbound', { fifo: true, visibilityTimeout: Duration.seconds(60), ...secureQueue });
-
-    const bridgeSecret = StringParameter.fromSecureStringParameterAttributes(this, 'BridgeSecret', {
-      parameterName: BRIDGE_SECRET_PARAM,
-    });
+    // Short retention: a reply that hasn't reached the Mac within a day is stale.
+    const outbound = new Queue(this, 'Outbound', { fifo: true, visibilityTimeout: Duration.seconds(60), retentionPeriod: Duration.days(1), ...secureQueue });
 
     const ingress = fn('Ingress', 'ingress.ts', 10);
     ingress.addEnvironment('INBOUND_QUEUE_URL', inbound.queueUrl);
-    ingress.addEnvironment('BRIDGE_SECRET_PARAM', BRIDGE_SECRET_PARAM);
     inbound.grantSendMessages(ingress);
-    bridgeSecret.grantRead(ingress);
+    grantParams(ingress, [PARAMS.bridgeSecret]);
 
-    // Generated PDFs, .ics files and received form photos. Private; the bridge only gets 1-hour presigned links.
+    // Photos texted to the assistant, and generated charts. Private; the bridge only gets 1-hour presigned links.
     const files = new Bucket(this, 'Files', {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       encryption: BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      // Hackathon stack: synthetic data only, so tearing down should leave nothing behind.
+      // Texted-in photos and charts expire; the capybara stash (stash/) is kept.
+      lifecycleRules: [
+        { prefix: 'inbound/', expiration: Duration.days(30) },
+        { prefix: 'charts/', expiration: Duration.days(30) },
+      ],
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
 
-    // Typical turns take 3-16s; a tight timeout keeps a stuck turn from blocking the coordinator's FIFO group for long.
-    const agent = fn('Agent', 'agent.ts', 60);
+    // Typical turns take 3-20s; a tight timeout keeps a stuck turn from blocking the FIFO group for long.
+    const agent = fn('Agent', 'agent.ts', 90);
     agent.addEnvironment('FILES_BUCKET', files.bucketName);
     files.grantReadWrite(agent);
     agent.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);
     agent.addEnvironment('LLM_PROVIDER', props.llmProvider);
-    for (const name of SECRET_PARAMS) {
-      StringParameter.fromSecureStringParameterAttributes(this, `Param${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(agent);
-    }
-    // us.* inference profiles fan out to several regions, so both ARNs are needed across regions.
+    grantParams(agent, [PARAMS.mongoUri, PARAMS.anthropicKey, PARAMS.stateSecret, PARAMS.googleClient, PARAMS.tokenKey, PARAMS.canvas]);
+    // Only used when LLM_PROVIDER=bedrock. us.* inference profiles fan out to several regions.
     agent.addToRolePolicy(new PolicyStatement({
       actions: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream'],
-      resources: [
-        `arn:aws:bedrock:*:${this.account}:inference-profile/us.anthropic.*`,
-        'arn:aws:bedrock:*::foundation-model/anthropic.*',
-        'arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2*',
-      ],
+      resources: [`arn:aws:bedrock:*:${this.account}:inference-profile/us.anthropic.*`, 'arn:aws:bedrock:*::foundation-model/anthropic.*'],
     }));
     agent.addEventSource(new SqsEventSource(inbound, { batchSize: 1 }));
     outbound.grantSendMessages(agent);
 
     const api = new HttpApi(this, 'Api');
-    // One coordinator texts a few times a minute; cap everything else (cost and abuse protection).
+    // One person texts a few times a minute; cap everything else (cost and abuse protection).
     (api.defaultStage!.node.defaultChild as CfnStage).defaultRouteSettings = { throttlingRateLimit: 5, throttlingBurstLimit: 10 };
-    const ingressInt = new HttpLambdaIntegration('IngressInt', ingress);
-    api.addRoutes({ path: '/inbound', methods: [HttpMethod.POST], integration: ingressInt });
-    api.addRoutes({ path: '/events', methods: [HttpMethod.POST], integration: ingressInt });
+    api.addRoutes({ path: '/inbound', methods: [HttpMethod.POST], integration: new HttpLambdaIntegration('IngressInt', ingress) });
 
-    // Morning check goes straight onto the inbound queue: no extra Lambda, same ordering guarantees.
-    const firstCoordinator = props.allowlist.split(',')[0]!.trim();
-    new Schedule(this, 'DailyCheck', {
+    // Morning briefing goes straight onto the inbound queue: no extra Lambda, same ordering guarantees.
+    const owner = props.allowlist.split(',')[0]!.trim();
+    new Schedule(this, 'MorningBriefing', {
       schedule: ScheduleExpression.cron({ minute: '0', hour: '8', timeZone: TimeZone.AMERICA_NEW_YORK }),
       target: new SqsSendMessage(inbound, {
-        messageGroupId: firstCoordinator,
-        input: ScheduleTargetInput.fromObject({ kind: 'event', type: 'daily_check', eventId: 'daily-<aws.scheduler.scheduled-time>' }),
+        messageGroupId: owner,
+        input: ScheduleTargetInput.fromObject({ kind: 'event', type: 'morning_briefing', eventId: 'briefing-<aws.scheduler.scheduled-time>' }),
       }),
     });
 
-    // Live dashboard behind signed, expiring links the agent texts to the coordinator.
-    // The coordinator console (apps/web, built by `npm run deploy`) ships inside this function.
-    const webDist = fileURLToPath(new URL('../../apps/web/dist', import.meta.url));
-    const dashboard = fn('Dashboard', 'dashboard.ts', 15, [`cp -R ${webDist} $OUT/web`]);
-    dashboard.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
-    for (const name of ['/coord/mongodb-uri', DASHBOARD_SECRET_PARAM]) {
-      StringParameter.fromSecureStringParameterAttributes(this, `DashParam${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(dashboard);
-    }
-    const dashInt = new HttpLambdaIntegration('DashboardInt', dashboard);
-    api.addRoutes({ path: '/dashboard', methods: [HttpMethod.GET], integration: dashInt });
-    api.addRoutes({ path: '/dashboard/{proxy+}', methods: [HttpMethod.GET], integration: dashInt });
-    agent.addEnvironment('DASHBOARD_URL', `${api.apiEndpoint}/dashboard`);
-    agent.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
+    // Reminders and Canvas deadline nudges: a small every-minute check that only wakes the agent when something is due.
+    const ticker = fn('Ticker', 'ticker.ts', 50, 256);
+    ticker.addEnvironment('INBOUND_QUEUE_URL', inbound.queueUrl);
+    inbound.grantSendMessages(ticker);
+    grantParams(ticker, [PARAMS.mongoUri, PARAMS.canvas]);
+    // Capybara drops: the ticker stocks stash/ from capy.lol and sends pics straight to the outbound queue.
+    ticker.addEnvironment('FILES_BUCKET', files.bucketName);
+    ticker.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);
+    files.grantRead(ticker, 'stash/*');
+    files.grantPut(ticker, 'stash/*');
+    outbound.grantSendMessages(ticker);
+    new Schedule(this, 'Tick', {
+      schedule: ScheduleExpression.rate(Duration.minutes(1)),
+      target: new LambdaInvoke(ticker, { retryAttempts: 0 }),
+    });
 
-    // Google OAuth: the coordinator approves access in a browser and Google redirects here.
+    // Google OAuth: the owner approves access in a browser and Google redirects here.
     const googleRedirect = `${api.apiEndpoint}/google/callback`;
     const googleCallback = fn('GoogleCallback', 'googleCallback.ts', 20);
     googleCallback.addEnvironment('GOOGLE_REDIRECT_URI', googleRedirect);
-    googleCallback.addEnvironment('DASHBOARD_SECRET_PARAM', DASHBOARD_SECRET_PARAM);
     googleCallback.addEnvironment('OUTBOUND_QUEUE_URL', outbound.queueUrl);
     outbound.grantSendMessages(googleCallback);
-    for (const name of ['/coord/mongodb-uri', DASHBOARD_SECRET_PARAM, '/coord/google-oauth-client', '/coord/token-key']) {
-      StringParameter.fromSecureStringParameterAttributes(this, `GoogleParam${name.replace(/\W/g, '')}`, { parameterName: name }).grantRead(googleCallback);
-    }
+    grantParams(googleCallback, [PARAMS.mongoUri, PARAMS.stateSecret, PARAMS.googleClient, PARAMS.tokenKey]);
     api.addRoutes({ path: '/google/callback', methods: [HttpMethod.GET], integration: new HttpLambdaIntegration('GoogleCallbackInt', googleCallback) });
     agent.addEnvironment('GOOGLE_REDIRECT_URI', googleRedirect);
-    new CfnOutput(this, 'GoogleRedirectUri', { value: googleRedirect });
+
+    // The Mac bridge's own identity: long-lived key (no expiring sign-in), and it can only pick up replies
+    // and upload texted photos. The access key is made with the CLI so its secret never lands in CloudFormation.
+    const bridge = new User(this, 'Bridge');
+    outbound.grantConsumeMessages(bridge);
+    files.grantPut(bridge, 'inbound/*');
+    new CfnOutput(this, 'BridgeUserName', { value: bridge.userName });
 
     new CfnOutput(this, 'IngressUrl', { value: `${api.apiEndpoint}/inbound` });
     new CfnOutput(this, 'OutboundQueueUrl', { value: outbound.queueUrl });
+    new CfnOutput(this, 'GoogleRedirectUri', { value: googleRedirect });
     new CfnOutput(this, 'FilesBucket', { value: files.bucketName });
   }
 }

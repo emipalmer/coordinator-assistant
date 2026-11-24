@@ -1,7 +1,7 @@
 import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { isAllowlisted, OutboundMessage, type Logger } from '@app/core';
 import type { Config } from './config.js';
-import { directChatGuid, type BlueBubbles } from './bluebubbles.js';
+import type { BlueBubbles } from './bluebubbles.js';
 
 // Long-polls the outbound queue so the Mac never needs an inbound tunnel from AWS.
 export function startOutboundPoller(cfg: Config, bb: BlueBubbles, log: Logger) {
@@ -31,16 +31,26 @@ export function startOutboundPoller(cfg: Config, bb: BlueBubbles, log: Logger) {
     const parsed = OutboundMessage.safeParse(JSON.parse(body));
     if (!parsed.success) return log.error('bad outbound message, dropping', { issues: parsed.error.issues });
     const msg = parsed.data;
-    // Second line of defense: even a buggy agent can't text anyone but a coordinator.
+    // Second line of defense: even a buggy agent can't text anyone but an allowlisted number.
     if (!isAllowlisted(msg.to, cfg.allowlist)) return log.error('outbound to non-allowlisted number blocked');
-    if (msg.text) await bb.sendText(directChatGuid(msg.to), msg.text);
+    const chatGuid = await bb.chatGuidFor(msg.to);
+    try {
+      await send(chatGuid, msg);
+    } catch (err) {
+      bb.forgetChat(msg.to);
+      throw err;
+    }
+    log.info('outbound sent', { len: msg.text?.length ?? 0, attachment: msg.attachment?.filename });
+  }
+
+  async function send(chatGuid: string, msg: OutboundMessage) {
+    if (msg.text) await bb.sendText(chatGuid, msg.text);
     if (msg.attachment) {
       const res = await fetch(msg.attachment.url, { signal: AbortSignal.timeout(30_000) });
       if (!res.ok) throw new Error(`attachment download failed: ${res.status}`);
       const bytes = new Uint8Array(await res.arrayBuffer());
-      await bb.sendAttachment(directChatGuid(msg.to), msg.attachment.filename, bytes, res.headers.get('content-type') ?? 'application/octet-stream');
+      await bb.sendAttachment(chatGuid, msg.attachment.filename, bytes, res.headers.get('content-type') ?? 'application/octet-stream');
     }
-    log.info('outbound sent', { len: msg.text?.length ?? 0, attachment: msg.attachment?.filename });
   }
 
   void loop();

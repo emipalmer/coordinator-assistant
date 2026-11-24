@@ -9,9 +9,12 @@ export interface ToolContext {
   log: Logger;
   now: Date;
   timezone: string;
-  coordinator: string;
+  /** E.164 number of the person this assistant works for. */
+  owner: string;
   /** Files queued here are sent as attachments after the text reply. */
   attachments: StoredFile[];
+  /** S3 keys of photos attached to the owner's current message (for save_capy). */
+  photoKeys: string[];
 }
 
 export interface Tool<S extends z.ZodType = z.ZodType> {

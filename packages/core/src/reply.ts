@@ -1,4 +1,6 @@
 const DRAFT = /\[\[draft\]\]([\s\S]*?)\[\[\/draft\]\]/g;
+/** The model writes this between two parts that should arrive as separate bubbles. */
+export const BUBBLE_BREAK = '[[split]]';
 
 /**
  * Split the model's reply into iMessage bubbles, in reading order. Volunteer-facing drafts get
@@ -14,5 +16,5 @@ export function splitReply(text: string): string[] {
     last = m.index! + m[0].length;
   }
   out.push(text.slice(last));
-  return out.map((s) => s.replace(/\n{3,}/g, '\n\n').trim()).filter(Boolean);
+  return out.flatMap((s) => s.split(BUBBLE_BREAK)).map((s) => s.replace(/\n{3,}/g, '\n\n').trim()).filter(Boolean);
 }

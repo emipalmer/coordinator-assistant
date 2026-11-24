@@ -40,32 +40,3 @@ export function nowContext(now: Date, zone: string): string {
   // Date only: a clock time would change every request and defeat prompt caching.
   return `Today is ${day}, ${localDate(now, zone)} (${zone}).`;
 }
-
-/** Birthdays within the next `days` days (inclusive of today), soonest first. Feb 29 is celebrated Feb 28 in non-leap years. */
-export function upcomingBirthdays<T extends { birthday?: { month: number; day: number } }>(
-  people: T[], now: Date, zone: string, days: number,
-): Array<{ person: T; date: string; inDays: number }> {
-  const [y, mo, d] = localDate(now, zone).split('-').map(Number) as [number, number, number];
-  const today = Date.UTC(y, mo - 1, d);
-  const out: Array<{ person: T; date: string; inDays: number }> = [];
-  for (const person of people) {
-    if (!person.birthday) continue;
-    for (const year of [y, y + 1]) {
-      const { month, day } = person.birthday;
-      const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-      const dd = month === 2 && day === 29 && !leap ? 28 : day;
-      const when = Date.UTC(year, month - 1, dd);
-      const inDays = Math.round((when - today) / 86_400_000);
-      if (inDays >= 0) {
-        if (inDays <= days) out.push({ person, date: new Date(when).toISOString().slice(0, 10), inDays });
-        break;
-      }
-    }
-  }
-  return out.sort((a, b) => a.inDays - b.inDays);
-}
-
-/** Whole days since `last` (undefined means never active). */
-export function daysSince(last: Date | undefined, now: Date): number | null {
-  return last ? Math.floor((now.getTime() - last.getTime()) / 86_400_000) : null;
-}

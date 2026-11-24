@@ -1,9 +1,9 @@
 import type { APIGatewayProxyEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
-import { createLogger, parseAllowlist } from '@app/core';
+import { ASSISTANT_NAME, createLogger, parseAllowlist } from '@app/core';
 import { collections, getDb, recordAssistantMessage } from '../db.js';
 import { mongoUri, outboundQueueUrl } from '../config.js';
-import { completeConnection, coordinatorRef, verifyState } from '../google.js';
-import { sendToCoordinator } from '../outbox.js';
+import { completeConnection, missingScopes, ownerRef, verifyState } from '../google.js';
+import { sendToOwner } from '../outbox.js';
 
 const log = createLogger({ svc: 'google-callback' });
 
@@ -21,27 +21,30 @@ const page = (title: string, body: string, status = 200): APIGatewayProxyResultV
 <h1>${title}</h1><p>${body}</p>`,
 });
 
-// GET /google/callback?code=...&state=... (Google redirects here after the coordinator approves)
+// GET /google/callback?code=...&state=... (Google redirects here after the owner approves)
 export async function handler(event: APIGatewayProxyEventV2): Promise<APIGatewayProxyResultV2> {
   const q = event.queryStringParameters ?? {};
-  if (q.error) return page('Not connected', 'Google access was not granted. You can ask Tari for a new link any time.');
+  if (q.error) return page('Not connected', `Google access was not granted. You can ask ${ASSISTANT_NAME} for a new link any time.`);
   const ref = await verifyState(q.state);
-  // The state is signed and short-lived, and must map to a current coordinator: stops CSRF and replayed links.
-  const coordinator = ref ? [...parseAllowlist(process.env.COORDINATOR_ALLOWLIST)].find((p) => coordinatorRef(p) === ref) : undefined;
-  if (!coordinator || !q.code) {
+  // The state is signed and short-lived, and must map to an allowlisted number: stops CSRF and replayed links.
+  const owner = ref ? [...parseAllowlist(process.env.ALLOWLIST)].find((p) => ownerRef(p) === ref) : undefined;
+  if (!owner || !q.code) {
     log.warn('google callback rejected');
-    return page('Link expired', 'This connect link expired or is invalid. Text Tari "connect Google" for a fresh one.', 400);
+    return page('Link expired', `This connect link expired or is invalid. Text ${ASSISTANT_NAME} "connect Google" for a fresh one.`, 400);
   }
   try {
     const c = collections(await getDb(await mongoUri()));
-    const conn = await completeConnection(c, coordinator, q.code);
-    const text = `Google is connected (${conn.email}). Shifts will go on a separate "Tari" calendar in your account (I can't touch your own calendars), I'll flag when you're busy, and I can put emails in your Gmail Drafts for you to send. Want me to add your upcoming shifts to the Tari calendar now?\nA. Yes\nB. Not now`;
-    await recordAssistantMessage(c, coordinator, text);
-    await sendToCoordinator(outboundQueueUrl(), [{ to: coordinator, text }]);
-    log.info('google connected');
-    return page('Connected', 'Tari is connected to your Google account. You can close this page and go back to Messages.');
+    const conn = await completeConnection(c, owner, q.code);
+    const missing = missingScopes(conn);
+    const text = missing.length
+      ? `Google is connected (${conn.email}), but a few permissions were left unticked, so some things won't work. Want a fresh link to fix that?\nA. Yes\nB. Not now`
+      : `Google is connected (${conn.email}). I can now check and edit your calendar, keep your Google Tasks, search and read your email, and write drafts (I can't send). Try "what's on tomorrow?"`;
+    await recordAssistantMessage(c, owner, text);
+    await sendToOwner(outboundQueueUrl(), [{ to: owner, text }]);
+    log.info('google connected', { missing: missing.length });
+    return page('Connected', `${ASSISTANT_NAME} is connected to your Google account. You can close this page and go back to Messages.`);
   } catch (err) {
     log.error('google connect failed', { err: (err as Error).message });
-    return page('Something went wrong', 'Tari could not finish connecting. Please ask for a new link and try again.', 500);
+    return page('Something went wrong', `${ASSISTANT_NAME} could not finish connecting. Please ask for a new link and try again.`, 500);
   }
 }

@@ -8,7 +8,11 @@ export interface MailAttachment {
 
 export interface MailDraft {
   to?: string[];
+  cc?: string[];
   subject: string;
+  /** Message-ID of the email being replied to, so Gmail threads the draft. */
+  inReplyTo?: string;
+  references?: string;
   text: string;
   attachments?: MailAttachment[];
 }
@@ -22,10 +26,14 @@ const wrap76 = (b64: string) => b64.replace(/.{1,76}/g, (l) => `${l}\r\n`).trimE
 const safeFilename = (s: string) => s.replace(/["\\\r\n]/g, '_');
 const isEmail = (s: string) => /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/.test(s);
 
-export function buildMime(d: MailDraft, boundary = `tari_${Math.random().toString(36).slice(2)}`): string {
+export function buildMime(d: MailDraft, boundary = `pa_${Math.random().toString(36).slice(2)}`): string {
   const to = (d.to ?? []).filter(isEmail);
+  const cc = (d.cc ?? []).filter(isEmail);
+  const msgId = (v?: string) => v?.replace(/[\r\n]+/g, ' ').trim();
   const headers = [
     ...(to.length ? [`To: ${to.join(', ')}`] : []),
+    ...(cc.length ? [`Cc: ${cc.join(', ')}`] : []),
+    ...(msgId(d.inReplyTo) ? [`In-Reply-To: ${msgId(d.inReplyTo)}`, `References: ${msgId(d.references) || msgId(d.inReplyTo)}`] : []),
     `Subject: ${encodeHeader(d.subject.replace(/[\r\n]+/g, ' '))}`,
     'MIME-Version: 1.0',
   ];

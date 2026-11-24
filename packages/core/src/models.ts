@@ -1,113 +1,41 @@
-import { z } from 'zod';
+/** The assistant's name: how it introduces itself, signs the OAuth pages, and names things it creates. */
+export const ASSISTANT_NAME = 'Star';
 
-export const Day = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
-export const DayPart = z.enum(['morning', 'afternoon', 'evening']);
-export const Availability = z.object({ day: Day, part: DayPart });
-export type Availability = z.infer<typeof Availability>;
+export const DEFAULT_TIMEZONE = 'America/New_York';
 
-export const Birthday = z.object({ month: z.number().int().min(1).max(12), day: z.number().int().min(1).max(31) });
-export type Birthday = z.infer<typeof Birthday>;
-
-export const COMPLIANCE_ITEMS = ['application', 'waiver', 'emergencyContact', 'codeOfConduct', 'guardianConsent'] as const;
-export const ComplianceItem = z.enum(COMPLIANCE_ITEMS);
-export type ComplianceItem = z.infer<typeof ComplianceItem>;
-export const ComplianceEntry = z.object({
-  status: z.enum(['missing', 'received', 'not_required']),
-  receivedAt: z.date().optional(),
-  docKey: z.string().optional(), // S3 key of a photographed signed form
-});
-export type Compliance = Record<ComplianceItem, z.infer<typeof ComplianceEntry>>;
-
-export const VolunteerStatus = z.enum(['onboarding', 'active', 'inactive']);
-
-export interface Volunteer {
-  name: string;
-  nameLower: string; // case-insensitive lookups without a collation
-  phone?: string;
-  email?: string;
-  birthday?: Birthday;
-  isMinor: boolean;
-  availability: Availability[];
-  skills: string[];
-  interests: string[];
-  notes: string;
-  notesEmbedding?: number[];
-  status: z.infer<typeof VolunteerStatus>;
-  lastActiveAt?: Date;
-  lastCheckInDraftAt?: Date;
-  compliance: Compliance;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface Shift {
-  title: string;
-  location?: string;
-  start: Date;
-  end: Date;
-  capacity: number;
-  requiredSkills: string[];
-  description: string;
-  status: 'scheduled' | 'cancelled';
-  createdAt: Date;
-  /** Google Calendar event ids by coordinator, when synced. */
-  googleEvents?: Record<string, string>;
-}
-
-// Separate collection so a cancellation is a single status flip a change stream can match on.
-export interface Assignment {
-  shiftId: unknown;
-  volunteerId: unknown;
-  status: 'confirmed' | 'cancelled';
-  createdAt: Date;
-  cancelledAt?: Date;
-}
-
-export interface AttendanceRecord {
-  volunteerId: unknown;
-  shiftId?: unknown;
-  date: Date;
-  hours: number;
-  activity: string | null;
-  createdAt: Date;
-}
-
-export interface Settings {
-  _id: 'org';
-  orgName: string;
-  timezone: string;
-  hourlyValueUsd: number;
-  coordinatorName?: string;
-  /** Bumped to revoke all dashboard links. */
-  dashboardLinkVersion?: number;
-}
-
-/** New volunteers start with everything missing; guardian consent only applies to minors. */
-export function initialCompliance(isMinor: boolean): Compliance {
-  return {
-    application: { status: 'missing' },
-    waiver: { status: 'missing' },
-    emergencyContact: { status: 'missing' },
-    codeOfConduct: { status: 'missing' },
-    guardianConsent: { status: isMinor ? 'missing' : 'not_required' },
-  };
-}
-
-export function missingCompliance(c: Compliance): ComplianceItem[] {
-  return COMPLIANCE_ITEMS.filter((k) => c[k].status === 'missing');
-}
-
-/** Per-coordinator preferences, gathered by the first-conversation setup. */
-export interface CoordinatorProfile {
+/** The owner's profile and preferences, gathered by the first-conversation setup. One per allowlisted number. */
+export interface OwnerProfile {
   _id: string; // E.164
   name?: string;
+  timezone?: string; // IANA zone; DEFAULT_TIMEZONE when unset
   prefs: {
     replyLength?: 'brief' | 'detailed';
-    draftTone?: 'warm' | 'professional' | 'casual';
     emoji?: boolean;
-    dailyCheck?: boolean;
-    draftSignOff?: string;
+    morningBriefing?: boolean;
+    /** Texts the night before and 3 hours before Canvas deadlines (default on). */
+    deadlineNudges?: boolean;
+    /** Their usual day, local "HH:mm": meeting suggestions stay inside it. */
+    dayStart?: string;
+    dayEnd?: string;
+    /** Place for weather, e.g. "State College, PA". */
+    weatherPlace?: string;
+    /** Which calendar each event category goes on (calendar ids); unset categories go on primary. */
+    calendarFor?: Partial<Record<string, string>>;
+    /** Capybara pics a day from the stash, at random times (0 = off). */
+    capysPerDay?: number;
+    /** Encouraging texts a day at random times (0 = off). */
+    pepTalksPerDay?: number;
   };
+  /** Durable facts the owner asked the assistant to remember ("my advisor is Dr. Lee"). */
+  memories?: Array<{ id: string; text: string; at: Date }>;
   onboardedAt?: Date;
   createdAt: Date;
 }
+
+export const MAX_MEMORIES = 60;
+
+/** Defaults when the owner hasn't said: usual day for meeting suggestions, and weather location. */
+export const DEFAULT_DAY = { start: '09:00', end: '21:00' } as const;
+export const DEFAULT_WEATHER_PLACE = 'State College, PA';
+export const DEFAULT_CAPYS_PER_DAY = 3;
+export const DEFAULT_PEP_TALKS_PER_DAY = 2;
